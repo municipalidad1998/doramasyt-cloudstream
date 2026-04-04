@@ -37,16 +37,13 @@ class DoramasYTProvider : MainAPI() {
         "$mainUrl/genero/fantasia?p=" to "Fantasia",
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = request.data + page
-        val response = app.get(url)
-        val document = response.document
-
-        val homeList = document.select(".item").mapNotNull { element ->
-            val titleElement = element.selectFirst("h3, a")
-            val title = titleElement?.text()?.trim() ?: return@mapNotNull null
-            val href = fixUrlNull(element.selectFirst("a")?.attr("href") ?: return@mapNotNull null) ?: return@mapNotNull null
-            val poster = fixUrlNull(element.selectFirst("img")?.attr("src") ?: element.selectFirst("img")?.attr("data-src") ?: "")
+    private fun parseSearchResponse(document: org.jsoup.nodes.Document): List<SearchResponse> {
+        return document.select("li.ficha_efecto").mapNotNull { li ->
+            val link = li.selectFirst("a") ?: return@mapNotNull null
+            val href = fixUrlNull(link.attr("href")) ?: return@mapNotNull null
+            val title = li.selectFirst("h3.title_cap")?.text()?.trim() ?: return@mapNotNull null
+            val img = li.selectFirst("img.lazy")
+            val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: "")
 
             newMovieSearchResponse(
                 name = title,
@@ -56,6 +53,12 @@ class DoramasYTProvider : MainAPI() {
                 this.posterUrl = poster
             }
         }
+    }
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val url = request.data + page
+        val response = app.get(url)
+        val homeList = parseSearchResponse(response.document)
 
         return newHomePageResponse(
             listOf(
@@ -65,26 +68,9 @@ class DoramasYTProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        val url = "$mainUrl/doramas?q=${query}"
+        val url = "$mainUrl/buscar?q=${query}"
         val response = app.get(url)
-        val document = response.document
-
-        val results = document.select(".item").mapNotNull { element ->
-            val titleElement = element.selectFirst("h3, a")
-            val title = titleElement?.text()?.trim() ?: return@mapNotNull null
-            val href = fixUrlNull(element.selectFirst("a")?.attr("href") ?: return@mapNotNull null) ?: return@mapNotNull null
-            val poster = fixUrlNull(element.selectFirst("img")?.attr("src") ?: element.selectFirst("img")?.attr("data-src") ?: "")
-
-            newMovieSearchResponse(
-                name = title,
-                url = href,
-                type = TvType.AsianDrama
-            ) {
-                this.posterUrl = poster
-            }
-        }
-
-        return results
+        return parseSearchResponse(response.document)
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -92,50 +78,33 @@ class DoramasYTProvider : MainAPI() {
         val document = response.document
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
-        val poster = fixUrlNull(document.selectFirst(".img-drama img")?.attr("src") ?: "")
-        val backgroundPosterUrl = fixUrlNull(document.selectFirst(".background")?.attr("src") ?: document.selectFirst(".img-drama img")?.attr("src") ?: "")
-        val plot = document.select(".sinopsis p, .description p, .text-center p").text().trim()
-        val yearText = document.select(".date, .fecha, span:contains(202), span:contains(201)").firstOrNull()?.text()?.trim()?.takeLast(4)?.toIntOrNull()
-        val tags = document.select(".genres a, .generos a").map { it.text().trim() }
+        val poster = fixUrlNull(document.selectFirst(".img-drama img, .card-img-top img, .background")?.attr("src")
+            ?: document.selectFirst(".img-drama img, .card-img-top img, .background")?.attr("data-src") ?: "")
+        val backgroundPosterUrl = poster
+        val plot = document.select(".sinopsis p, .description p, .text-muted:has(p) p, .card-body p").text().trim()
+            .ifBlank { document.selectFirst("p:contains(sinopsis) + p, .sinopsis")?.text()?.trim() ?: "" }
+        val yearText = document.selectFirst("span:contains(202), span:contains(201), .badge:contains(202), .badge:contains(201)")
+            ?.text()?.trim()?.takeLast(4)?.toIntOrNull()
+        val tags = document.select(".genres a, .generos a, .badge.bg-secondary, a[href*='/genero/']").map { it.text().trim() }
 
         val episodes = mutableListOf<Episode>()
         
-        val episodeElements = document.select(".episode-list .episode, .capitulos a, .list-episodes a, .episodes a")
-        if (episodeElements.isNotEmpty()) {
-            episodeElements.forEach { ep ->
-                val epHref = fixUrlNull(ep.attr("href") ?: "") ?: return@forEach
-                val epTitle = ep.text().trim()
-                val epNumber = Regex("""[Ee]pisodio\s*(\d+)|[Cc]apitulo\s*(\d+)|Ep\s*(\d+)""").find(epTitle)?.destructured?.let { (a, b, c) ->
-                    (a + b + c).toIntOrNull()
-                } ?: 1
-                
-                episodes.add(
-                    newEpisode(epHref) {
-                        this.name = epTitle
-                        this.episode = epNumber
-                    }
-                )
-            }
-        } else {
-            val firstEpLink = document.selectFirst("a:contains(Ver Ahora), a:contains(Ver ahora), a:contains(Ver Episodio)")
-            if (firstEpLink != null) {
-                val epHref = fixUrlNull(firstEpLink.attr("href") ?: "") ?: ""
-                if (epHref.isNotBlank()) {
-                    episodes.add(
-                        newEpisode(epHref) {
-                            this.name = "Episodio 1"
-                            this.episode = 1
-                        }
-                    )
+        document.select("a[href*='/ver/']").forEach { ep ->
+            val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+            val epTitle = ep.text().trim().ifBlank { epHref.substringAfterLast("/") }
+            val epNumber = Regex("""[Ee]pisodio\s*(\d+)|[Cc]apitulo\s*(\d+)|Ep\s*(\d+)|(\d+)""").find(epTitle)?.destructured?.let { (a, b, c, d) ->
+                (a + b + c + d).toIntOrNull()
+            } ?: 1
+
+            episodes.add(
+                newEpisode(epHref) {
+                    this.name = epTitle
+                    this.episode = epNumber
                 }
-            }
+            )
         }
 
-        val type = if (episodes.size > 1 || document.select(".type:contains(Dorama), .tipo:contains(Dorama)").isNotEmpty()) {
-            TvType.TvSeries
-        } else {
-            TvType.AsianDrama
-        }
+        val type = if (episodes.size > 1) TvType.TvSeries else TvType.AsianDrama
 
         return newTvSeriesLoadResponse(title, url, type, episodes) {
             this.posterUrl = poster
@@ -155,45 +124,30 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
-        val servers = document.select(".server-list .server, .servers li, .player-options li, .options li")
-        
-        if (servers.isNotEmpty()) {
-            servers.forEach { server ->
-                val serverName = server.selectFirst(".name, .server-name, span")?.text()?.trim() ?: ""
-                val linkElement = server.selectFirst("a, button")
-                val linkUrl = linkElement?.attr("href") ?: linkElement?.attr("data-link") ?: linkElement?.attr("data-url") ?: ""
-                
-                if (linkUrl.isNotBlank()) {
-                    extractVideoLink(linkUrl, serverName, callback)
+        document.select("iframe").forEach { iframe ->
+            val src = iframe.attr("src")
+            if (src.isNotBlank()) {
+                extractVideoLink(src, "Default", callback)
+            }
+        }
+
+        document.select("script").forEach { script ->
+            val scriptData = script.data()
+            if (scriptData.contains("jwplayer") || scriptData.contains("player") || scriptData.contains("source")) {
+                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
+                    val videoUrl = match.groupValues[1]
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = name,
+                            url = videoUrl,
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.quality = Qualities.Unknown.value
+                            this.referer = mainUrl
+                        }
+                    )
                 }
-            }
-        }
-
-        val iframe = document.selectFirst("iframe")
-        if (iframe != null) {
-            val iframeSrc = iframe.attr("src")
-            if (iframeSrc.isNotBlank()) {
-                extractVideoLink(iframeSrc, "Default", callback)
-            }
-        }
-
-        val playerScript = document.selectFirst("script:containsData(player), script:containsData(video), script:containsData(embed)")
-        if (playerScript != null) {
-            val scriptData = playerScript.data()
-            val urlMatch = Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv|avi)[^"']*)["']""").find(scriptData)
-            if (urlMatch != null) {
-                val videoUrl = urlMatch.groupValues[1]
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = videoUrl,
-                        type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = mainUrl
-                    }
-                )
             }
         }
 
