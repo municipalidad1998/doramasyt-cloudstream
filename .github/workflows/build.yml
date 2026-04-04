@@ -49,26 +49,7 @@ jobs:
           ./gradlew :DoramasYTProvider:make --no-daemon --stacktrace
           find $GITHUB_WORKSPACE/src -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
           FILE_SIZE=$(stat -c%s $GITHUB_WORKSPACE/builds/DoramasYTProvider.cs3)
-          cat > $GITHUB_WORKSPACE/builds/plugins.json << 'JSONEOF'
-[
-    {
-        "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasYTProvider.cs3",
-        "status": 1,
-        "version": 1,
-        "name": "DoramasYT",
-        "internalName": "DoramasYTProvider",
-        "authors": ["municipalidad1998"],
-        "description": "Doramas con subtitulos en Espanol y Latino",
-        "fileSize": FILESIZE_PLACEHOLDER,
-        "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
-        "language": "es",
-        "tvTypes": ["AsianDrama", "TvSeries"],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png",
-        "apiVersion": 1
-    }
-]
-JSONEOF
-          sed -i "s/FILESIZE_PLACEHOLDER/$FILE_SIZE/g" $GITHUB_WORKSPACE/builds/plugins.json
+          printf '[\n    {\n        "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasYTProvider.cs3",\n        "status": 1,\n        "version": 1,\n        "name": "DoramasYT",\n        "internalName": "DoramasYTProvider",\n        "authors": ["municipalidad1998"],\n        "description": "Doramas con subtitulos en Espanol y Latino",\n        "fileSize": %s,\n        "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",\n        "language": "es",\n        "tvTypes": ["AsianDrama", "TvSeries"],\n        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png",\n        "apiVersion": 1\n    }\n]' "$FILE_SIZE" > $GITHUB_WORKSPACE/builds/plugins.json
 
       - name: Push builds
         run: |
