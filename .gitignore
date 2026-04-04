@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Build outputs
+/build/
+/builds/
+**/build/
+
+# Android
+local.properties
+*.iml
+
+# IDE
+.idea/
+*.iws
+*.ipr
+
+# Kotlin
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+build_out.txt
