@@ -1,0 +1,8 @@
+{
+  "name": "DoramasYT",
+  "description": "Doramas con subtitulos en Espanol y Latino",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/plugins.json"
+  ]
+}
