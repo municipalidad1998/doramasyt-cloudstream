@@ -1,8 +1,0 @@
-{
-  "name": "DoramasYT Repository",
-  "description": "Repositorio de DoramasYT - K-Dramas, C-Dramas, J-Dramas y más con subtítulos en español y audio latino",
-  "manifestVersion": 1,
-  "pluginLists": [
-    "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/builds/plugins.json"
-  ]
-}
