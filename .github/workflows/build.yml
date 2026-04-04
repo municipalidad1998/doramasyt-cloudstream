@@ -44,9 +44,8 @@ jobs:
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           ./gradlew :DoramasYTProvider:make --no-daemon --stacktrace
-          ./gradlew :DoramasYTProvider:makePluginsJson --no-daemon --stacktrace
           find $GITHUB_WORKSPACE/src -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
-          cp $GITHUB_WORKSPACE/src/build/plugins.json $GITHUB_WORKSPACE/builds/ 2>/dev/null || find $GITHUB_WORKSPACE/src -name "plugins.json" -path "*/build/*" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
+          echo '[{"name":"DoramasYT","description":"Doramas con subtitulos en Espanol y Latino","version":1,"apiVersion":1,"status":1,"language":"es","authors":["municipalidad1998"],"tvTypes":["AsianDrama","TvSeries"],"iconUrl":"https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png","repositoryUrl":"https://github.com/municipalidad1998/doramasyt-cloudstream","url":"https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasYTProvider.cs3"}]' > $GITHUB_WORKSPACE/builds/plugins.json
 
       - name: Push builds
         run: |
