@@ -16,4 +16,5 @@ cloudstream {
         "TvSeries"
     )
     iconUrl = "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png"
+    apiVersion = 1
 }
