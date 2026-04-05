@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -36,17 +35,22 @@ class PeliCineHDProvider : MainAPI() {
     )
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a = this.selectFirst("a") ?: return null
+        val a = this.selectFirst("a[href]") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
-        val title = this.selectFirst("h2, h3, .title, .entry-title")?.text()?.trim() ?: return null
+        val fullHref = if (href.startsWith("http")) href else "$mainUrl$href"
+        
+        val title = this.selectFirst("h2, h3, .entry-title, .title, .post-title, .movie-title")?.text()?.trim()
+            ?: a.attr("title")
+            ?: return null
+        
         val img = this.selectFirst("img")
-        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: "")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
 
-        val type = if (href.contains("/series/")) TvType.TvSeries else TvType.Movie
+        val type = if (fullHref.contains("/series/")) TvType.TvSeries else TvType.Movie
 
         return newMovieSearchResponse(
             name = title,
-            url = href,
+            url = fullHref,
             type = type
         ) {
             this.posterUrl = poster
@@ -56,7 +60,9 @@ class PeliCineHDProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page > 1) "${request.data}page/$page/" else request.data
         val response = app.get(url)
-        val homeList = response.document.select("article, .item, .post, .movie-item").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+
+        val homeList = document.select("article, .post, .item, .movie-item, .grid-item, .post-lst li").mapNotNull { it.toSearchResponse() }
 
         return newHomePageResponse(
             listOf(
@@ -68,7 +74,8 @@ class PeliCineHDProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? {
         val url = "$mainUrl?s=${query}"
         val response = app.get(url)
-        return response.document.select("article, .item, .post").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+        return document.select("article, .post, .item, .movie-item").mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -76,28 +83,31 @@ class PeliCineHDProvider : MainAPI() {
         val document = response.document
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
-        val poster = fixUrlNull(document.selectFirst("img")?.attr("data-src") ?: document.selectFirst("img")?.attr("src") ?: "")
+        
+        val img = document.selectFirst("img")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
         val backgroundPosterUrl = poster
-        val plot = document.select(".description, .sinopsis, .entry-content p").text().trim()
-        val yearText = Regex("""(\d{4})""").find(document.text())?.groupValues?.get(1)?.toIntOrNull()
+        
+        val plot = document.select(".entry-content p, .description, .sinopsis, .resumen").text().trim()
+            .ifBlank { document.selectFirst("meta[name=description]")?.attr("content")?.trim() ?: "" }
+        
         val tags = document.select("a[href*='/category/'], a[href*='/genero/']").map { it.text().trim() }
 
         val episodes = mutableListOf<Episode>()
         
-        if (url.contains("/series/")) {
-            document.select("a[href*='/episodio/'], a[href*='/temporada/']").forEach { ep ->
-                val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-                val epText = ep.text().trim()
-                val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ") }
-                val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        document.select("a[href*='/episodio/'], a[href*='/capitulo/'], a[href*='/temporada/']").forEach { ep ->
+            val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+            val fullEpHref = if (epHref.startsWith("http")) epHref else "$mainUrl$epHref"
+            val epText = ep.text().trim()
+            val epTitle = epText.ifBlank { fullEpHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+            val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
 
-                episodes.add(
-                    newEpisode(epHref) {
-                        this.name = epTitle
-                        this.episode = epNumber
-                    }
-                )
-            }
+            episodes.add(
+                newEpisode(fullEpHref) {
+                    this.name = epTitle
+                    this.episode = epNumber
+                }
+            )
         }
 
         val type = if (episodes.isNotEmpty()) TvType.TvSeries else TvType.Movie
@@ -107,7 +117,6 @@ class PeliCineHDProvider : MainAPI() {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
-                this.year = yearText
                 this.tags = tags
             }
         } else {
@@ -115,7 +124,6 @@ class PeliCineHDProvider : MainAPI() {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
-                this.year = yearText
                 this.tags = tags
             }
         }
