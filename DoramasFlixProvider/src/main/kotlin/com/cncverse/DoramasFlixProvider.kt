@@ -30,11 +30,25 @@ class DoramasFlixProvider : MainAPI() {
     )
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a = this.selectFirst("a") ?: return null
+        val a = this.selectFirst("a[href*='/dorama/'], a[href*='/pelicula/']") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
-        val title = this.selectFirst("h3, p, span")?.text()?.trim() ?: return null
+        
+        // Get title from the span with class sc-gGLxEB
+        val title = this.selectFirst(".sc-gGLxEB, [class*='sc-']")?.text()?.trim()
+            ?: a.attr("title")
+            ?: return null
+        
+        // Get image from the div with background-image or img tag
         val img = this.selectFirst("img")
-        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: "")
+        var poster = fixUrlNull(img?.attr("src") ?: img?.attr("data-src") ?: "")
+        
+        // Try to get poster from style attribute (background-image)
+        if (poster.isBlank()) {
+            val style = this.selectFirst("[style*='background-image']")?.attr("style")
+            if (style != null) {
+                poster = fixUrlNull(Regex("""url\(['"]?([^'")]+)['"]?\)""").find(style)?.groupValues?.get(1) ?: "")
+            }
+        }
 
         return newMovieSearchResponse(
             name = title,
@@ -48,7 +62,10 @@ class DoramasFlixProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = request.data
         val response = app.get(url)
-        val homeList = response.document.select("article, .item, li").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+
+        // Try multiple selectors for Next.js rendered content
+        val homeList = document.select("article, .sc-dPaNzc, [class*='sc-']").mapNotNull { it.toSearchResponse() }
 
         return newHomePageResponse(
             listOf(
@@ -58,20 +75,34 @@ class DoramasFlixProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        val url = "$mainUrl?q=${query}"
+        val url = "$mainUrl/buscar?q=${query}"
         val response = app.get(url)
-        return response.document.select("article, .item, li").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+        
+        return document.select("article, .sc-dPaNzc, [class*='sc-']").mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
         val response = app.get(url)
         val document = response.document
 
-        val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
-        val poster = fixUrlNull(document.selectFirst("img")?.attr("data-src") ?: document.selectFirst("img")?.attr("src") ?: "")
+        val title = document.selectFirst("h1")?.text()?.trim() 
+            ?: document.selectFirst("[class*='sc-']")?.text()?.trim() 
+            ?: "Unknown"
+        
+        val img = document.selectFirst("img")
+        var poster = fixUrlNull(img?.attr("src") ?: img?.attr("data-src") ?: "")
+        
+        if (poster.isBlank()) {
+            val style = document.selectFirst("[style*='background-image']")?.attr("style")
+            if (style != null) {
+                poster = fixUrlNull(Regex("""url\(['"]?([^'")]+)['"]?\)""").find(style)?.groupValues?.get(1) ?: "")
+            }
+        }
+        
         val backgroundPosterUrl = poster
         val plot = document.select("p, .description, .sinopsis").text().trim()
-        val tags = document.select("a[href*='/generos/'], a[href*='/etiquetas/']").map { it.text().trim() }
+        val tags = document.select("a[href*='/genero/'], a[href*='/etiquetas/']").map { it.text().trim() }
 
         val episodes = mutableListOf<Episode>()
         
@@ -108,7 +139,6 @@ class DoramasFlixProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
-        // Look for iframes
         document.select("iframe").forEach { iframe ->
             val src = iframe.attr("src").trim()
             if (src.isNotBlank() && src.startsWith("http")) {
@@ -116,7 +146,6 @@ class DoramasFlixProvider : MainAPI() {
             }
         }
 
-        // Look for video URLs in scripts
         document.select("script").forEach { script ->
             val scriptData = script.data()
             Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
@@ -177,25 +206,6 @@ class DoramasFlixProvider : MainAPI() {
                             type = if (videoUrlMatch.groupValues[1].contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                         ) {
                             this.referer = "https://voe.sx"
-                            this.quality = Qualities.Unknown.value
-                        }
-                    )
-                }
-            }
-            decodedUrl.contains("lulu") || decodedUrl.contains("lulustream") -> {
-                val pageResponse = app.get(decodedUrl)
-                val pageDoc = pageResponse.document
-                val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
-                val videoUrlMatch = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
-                if (videoUrlMatch != null) {
-                    callback.invoke(
-                        newExtractorLink(
-                            source = "$name - Lulu",
-                            name = "$name - Lulu",
-                            url = videoUrlMatch.groupValues[1],
-                            type = if (videoUrlMatch.groupValues[1].contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.referer = "https://lulustream.com"
                             this.quality = Qualities.Unknown.value
                         }
                     )
