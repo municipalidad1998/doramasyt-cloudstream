@@ -76,7 +76,6 @@ class DoramasYTProvider : MainAPI() {
         try {
             val mainResponse = app.get(mainUrl)
             val csrfToken = mainResponse.document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
-            val cookies = mainResponse.cookies
             
             val ajaxResponse = app.post(
                 "$mainUrl/buscar_ajax",
@@ -84,8 +83,7 @@ class DoramasYTProvider : MainAPI() {
                 headers = mapOf(
                     "Referer" to mainUrl,
                     "X-Requested-With" to "XMLHttpRequest"
-                ),
-                cookies = cookies
+                )
             )
             
             val json = org.json.JSONArray(ajaxResponse.text)
@@ -117,14 +115,8 @@ class DoramasYTProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        // First, get the main page to establish session and get cookies
-        val homeResponse = app.get(mainUrl)
-        val homeCookies = homeResponse.cookies
-        
-        // Now get the dorama page with the same session
-        val mainResponse = app.get(url, cookies = homeCookies)
-        val document = mainResponse.document
-        val allCookies = mainResponse.cookies
+        val response = app.get(url)
+        val document = response.document
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
         
@@ -141,14 +133,14 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        // Get episodes from AJAX endpoint - needs cookies from the page request
+        // Get episodes from AJAX endpoint - returns JSON
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
         
         if (ajaxUrl != null && ajaxUrl.isNotBlank() && csrfToken.isNotBlank()) {
             try {
-                // First page of episodes - use cookies from the main page request
+                // First page of episodes
                 val ajaxResponse = app.post(
                     ajaxUrl,
                     data = mapOf("_token" to csrfToken),
@@ -156,8 +148,7 @@ class DoramasYTProvider : MainAPI() {
                         "Referer" to url,
                         "X-Requested-With" to "XMLHttpRequest",
                         "Accept" to "application/json"
-                    ),
-                    cookies = allCookies
+                    )
                 )
                 
                 val json = org.json.JSONObject(ajaxResponse.text)
@@ -195,8 +186,7 @@ class DoramasYTProvider : MainAPI() {
                                     "Referer" to url,
                                     "X-Requested-With" to "XMLHttpRequest",
                                     "Accept" to "application/json"
-                                ),
-                                cookies = allCookies
+                                )
                             )
                             
                             val pageJson = org.json.JSONObject(pageResponse.text)
@@ -261,9 +251,8 @@ class DoramasYTProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val mainResponse = app.get(data)
-        val document = mainResponse.document
-        val cookies = mainResponse.cookies
+        val response = app.get(data)
+        val document = response.document
 
         // Get the player key from the page
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
@@ -276,7 +265,7 @@ class DoramasYTProvider : MainAPI() {
             if (encryptedData.isNotBlank()) {
                 // Build the reproductor URL with encrypted data
                 val videoUrl = "${playerKey}$encryptedData&player=$serverName"
-                extractFromReproductor(videoUrl, serverName, cookies, callback)
+                extractFromReproductor(videoUrl, serverName, callback)
             }
         }
 
@@ -291,9 +280,9 @@ class DoramasYTProvider : MainAPI() {
         return true
     }
 
-    private suspend fun extractFromReproductor(url: String, serverName: String, cookies: Map<String, String>, callback: (ExtractorLink) -> Unit) {
+    private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val response = app.get(url, headers = mapOf("Referer" to mainUrl), cookies = cookies)
+            val response = app.get(url, headers = mapOf("Referer" to mainUrl))
             val document = response.document
             
             // Look for iframe in the reproductor page
