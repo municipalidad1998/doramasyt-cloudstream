@@ -15,6 +15,11 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import org.json.JSONObject
+import java.util.Base64
 
 class DoramasYTProvider : MainAPI() {
     override var mainUrl = "https://www.doramasyt.com"
@@ -73,17 +78,48 @@ class DoramasYTProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        val url = "$mainUrl/buscar?q=${query}"
-        val response = app.get(url, headers = mapOf("Referer" to mainUrl))
-        val results = response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
-        
-        if (results.isEmpty()) {
-            val url2 = "$mainUrl/doramas?q=${query}"
-            val response2 = app.get(url2, headers = mapOf("Referer" to mainUrl))
-            return response2.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
+        // Try AJAX search first (like the site does)
+        try {
+            val csrfToken = app.get(mainUrl).document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
+            val ajaxResponse = app.post(
+                "$mainUrl/buscar_ajax",
+                data = mapOf("_token" to csrfToken, "q" to query),
+                headers = mapOf(
+                    "Referer" to mainUrl,
+                    "X-Requested-With" to "XMLHttpRequest"
+                )
+            )
+            
+            // The AJAX response is JSON with search results
+            val json = org.json.JSONArray(ajaxResponse.text)
+            val results = mutableListOf<SearchResponse>()
+            
+            for (i in 0 until json.length()) {
+                val item = json.getJSONObject(i)
+                val title = item.getString("nombre")
+                val href = item.getString("url")
+                val poster = item.getString("imagen")
+                
+                results.add(
+                    newMovieSearchResponse(
+                        name = title,
+                        url = fixUrl(href),
+                        type = TvType.AsianDrama
+                    ) {
+                        this.posterUrl = fixUrl(poster)
+                    }
+                )
+            }
+            
+            if (results.isNotEmpty()) return results
+        } catch (e: Exception) {
+            // Fallback to regular search
         }
         
-        return results
+        // Fallback: regular search
+        val url = "$mainUrl/buscar?q=${query}"
+        val response = app.get(url, headers = mapOf("Referer" to mainUrl))
+        return response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -172,10 +208,10 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
-        // Get the player key
+        // Get the player key from the page
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
         
-        // Extract encrypted player data from buttons and try each server
+        // Extract encrypted player data from buttons
         document.select("button.play-video[data-player]").forEach { btn ->
             val serverName = btn.text().trim().lowercase()
             val encryptedData = btn.attr("data-player")
