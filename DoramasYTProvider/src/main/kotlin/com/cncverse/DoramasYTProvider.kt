@@ -12,7 +12,6 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 
@@ -279,87 +278,60 @@ class DoramasYTProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // First, visit the homepage to establish session
-        app.get(mainUrl)
-        
-        // Then visit the episode page to get the resource token
         val response = app.get(data)
         val document = response.document
 
-        // Get the resource token from the page - it's embedded in a script tag
-        var resourceToken = ""
-        document.select("script").forEach { script ->
-            val scriptData = script.data()
-            val tokenMatch = Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(scriptData)
-            if (tokenMatch != null) {
-                resourceToken = tokenMatch.groupValues[1]
+        // Extract direct download links (Gofile, Pixeldrain, Mega) - these work without Cloudflare
+        document.select("a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='mega.nz'], a[href*='mega.co.nz']").forEach { link ->
+            val href = link.attr("href").trim()
+            val serverName = link.text().trim()
+            
+            if (href.isNotBlank()) {
+                callback.invoke(
+                    ExtractorLink(
+                        source = "$name - $serverName",
+                        name = "$name - $serverName",
+                        url = href,
+                        referer = mainUrl,
+                        quality = Qualities.Unknown.value,
+                        type = ExtractorLinkType.VIDEO
+                    )
+                )
             }
         }
 
-        // Get the player key
-        val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-
-        // Extract all server buttons and their encrypted data
+        // Try to get player links from buttons
         document.select("button.play-video[data-player]").forEach { btn ->
-            val serverName = btn.text().trim().lowercase()
+            val serverName = btn.text().trim()
             val encryptedData = btn.attr("data-player")
             
             if (encryptedData.isNotBlank()) {
-                // Build the full player URL with token
-                val playerUrl = "${playerKey}$encryptedData&player=$serverName&token=$resourceToken"
-                extractFromReproductor(playerUrl, serverName, callback)
-            }
-        }
-
-        // Also check for iframes directly
-        document.select("iframe").forEach { iframe ->
-            val src = iframe.attr("src").trim()
-            if (src.isNotBlank() && src.startsWith("http")) {
-                extractVideoLink(src, "Server", callback)
+                try {
+                    val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
+                    val playerUrl = "${playerKey}$encryptedData&player=$serverName"
+                    
+                    val playerResponse = app.get(
+                        playerUrl,
+                        headers = mapOf(
+                            "Referer" to data,
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        )
+                    )
+                    val playerDoc = playerResponse.document
+                    
+                    playerDoc.select("iframe").forEach { iframe ->
+                        val src = iframe.attr("src").trim()
+                        if (src.isNotBlank() && src.startsWith("http")) {
+                            extractVideoLink(src, serverName, callback)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore player errors
+                }
             }
         }
 
         return true
-    }
-
-    private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
-        try {
-            val response = app.get(
-                url,
-                headers = mapOf(
-                    "Referer" to mainUrl,
-                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                )
-            )
-            val document = response.document
-            
-            // Look for iframe in the reproductor page
-            document.select("iframe").forEach { iframe ->
-                val src = iframe.attr("src").trim()
-                if (src.isNotBlank() && src.startsWith("http")) {
-                    extractVideoLink(src, serverName, callback)
-                }
-            }
-            
-            // Look for video URLs in scripts
-            document.select("script").forEach { script ->
-                val scriptData = script.data()
-                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
-                    val videoUrl = match.groupValues[1]
-                    callback.invoke(
-                        newExtractorLink(
-                            source = "$name - $serverName",
-                            name = "$name - $serverName",
-                            url = videoUrl,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = mainUrl
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {}
     }
 
     private suspend fun extractVideoLink(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
@@ -368,21 +340,20 @@ class DoramasYTProvider : MainAPI() {
         val decodedUrl = try { URLDecoder.decode(url, "UTF-8") } catch (e: Exception) { url }
         
         when {
-            decodedUrl.contains("mega.nz") -> {
+            decodedUrl.contains("mega.nz") || decodedUrl.contains("mega.co.nz") -> {
                 callback.invoke(
-                    newExtractorLink(
+                    ExtractorLink(
                         source = "$name - Mega",
                         name = "$name - Mega",
                         url = decodedUrl,
+                        referer = "https://mega.nz",
+                        quality = Qualities.Unknown.value,
                         type = ExtractorLinkType.VIDEO
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = "https://mega.nz"
-                    }
+                    )
                 )
             }
             decodedUrl.contains("filemoon") || decodedUrl.contains("filemoon.sx") -> {
-                val pageResponse = app.get(decodedUrl)
+                val pageResponse = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
                 val pageDoc = pageResponse.document
                 val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
                 val videoUrlMatch = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
@@ -390,64 +361,19 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        newExtractorLink(
+                        ExtractorLink(
                             source = "$name - Filemoon",
                             name = "$name - Filemoon",
                             url = videoUrl,
+                            referer = "https://filemoon.sx",
+                            quality = Qualities.Unknown.value,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = "https://filemoon.sx"
-                        }
-                    )
-                }
-            }
-            decodedUrl.contains("dood") || decodedUrl.contains("doodstream") -> {
-                val pageResponse = app.get(decodedUrl)
-                val pageDoc = pageResponse.document
-                val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
-                val dsMatch = Regex("""/pass_md5/([^"']*)""").find(scriptData)
-                if (dsMatch != null) {
-                    val passUrl = "https://doodstream.com/pass_md5/${dsMatch.groupValues[1]}"
-                    val token = app.get(passUrl).text
-                    if (token.isNotBlank()) {
-                        callback.invoke(
-                            newExtractorLink(
-                                source = "$name - Doodstream",
-                                name = "$name - Doodstream",
-                                url = "$token${generateRandomString()}",
-                                type = ExtractorLinkType.VIDEO
-                            ) {
-                                this.quality = Qualities.Unknown.value
-                                this.referer = "https://doodstream.com"
-                                this.headers = mapOf("Referer" to "https://doodstream.com/")
-                            }
                         )
-                    }
-                }
-            }
-            decodedUrl.contains("streamtape") -> {
-                val pageResponse = app.get(decodedUrl)
-                val pageDoc = pageResponse.document
-                val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
-                val urlMatch = Regex("""innerHTML\s*=\s*["']([^"']+)["']""").find(scriptData)
-                if (urlMatch != null) {
-                    val videoUrl = urlMatch.groupValues[1]
-                    callback.invoke(
-                        newExtractorLink(
-                            source = "$name - Streamtape",
-                            name = "$name - Streamtape",
-                            url = videoUrl,
-                            type = ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = "https://streamtape.com"
-                        }
                     )
                 }
             }
             decodedUrl.contains("voe") || decodedUrl.contains("voe.sx") -> {
-                val pageResponse = app.get(decodedUrl)
+                val pageResponse = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
                 val pageDoc = pageResponse.document
                 val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
                 val videoUrlMatch = Regex("""hls":\s*["']([^"']+)["']""").find(scriptData)
@@ -455,102 +381,91 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        newExtractorLink(
+                        ExtractorLink(
                             source = "$name - Voe",
                             name = "$name - Voe",
                             url = videoUrl,
+                            referer = "https://voe.sx",
+                            quality = Qualities.Unknown.value,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = "https://voe.sx"
-                        }
+                        )
                     )
                 }
             }
             decodedUrl.contains("lulu") || decodedUrl.contains("lulustream") -> {
-                val pageResponse = app.get(decodedUrl)
+                val pageResponse = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
                 val pageDoc = pageResponse.document
                 val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
                 val videoUrlMatch = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        newExtractorLink(
+                        ExtractorLink(
                             source = "$name - Lulu",
                             name = "$name - Lulu",
                             url = videoUrl,
+                            referer = "https://lulustream.com",
+                            quality = Qualities.Unknown.value,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = "https://lulustream.com"
-                        }
+                        )
                     )
                 }
             }
             decodedUrl.contains("mxdrop") -> {
-                val pageResponse = app.get(decodedUrl)
+                val pageResponse = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
                 val pageDoc = pageResponse.document
                 val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
                 val videoUrlMatch = Regex("""url:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        newExtractorLink(
+                        ExtractorLink(
                             source = "$name - MxDrop",
                             name = "$name - MxDrop",
                             url = videoUrl,
+                            referer = "https://mxdrop.net",
+                            quality = Qualities.Unknown.value,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                        ) {
-                            this.quality = Qualities.Unknown.value
-                            this.referer = "https://mxdrop.net"
-                        }
+                        )
                     )
                 }
             }
             decodedUrl.contains("gofile.io") -> {
                 callback.invoke(
-                    newExtractorLink(
+                    ExtractorLink(
                         source = "$name - Gofile",
                         name = "$name - Gofile",
                         url = decodedUrl,
+                        referer = "https://gofile.io",
+                        quality = Qualities.Unknown.value,
                         type = ExtractorLinkType.VIDEO
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = "https://gofile.io"
-                    }
+                    )
                 )
             }
             decodedUrl.contains("pixeldrain") -> {
                 callback.invoke(
-                    newExtractorLink(
+                    ExtractorLink(
                         source = "$name - Pixeldrain",
                         name = "$name - Pixeldrain",
                         url = decodedUrl,
+                        referer = "https://pixeldrain.com",
+                        quality = Qualities.Unknown.value,
                         type = ExtractorLinkType.VIDEO
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = "https://pixeldrain.com"
-                    }
+                    )
                 )
             }
             decodedUrl.startsWith("http") -> {
                 callback.invoke(
-                    newExtractorLink(
+                    ExtractorLink(
                         source = "$name - $serverName",
                         name = "$name - $serverName",
                         url = decodedUrl,
+                        referer = mainUrl,
+                        quality = Qualities.Unknown.value,
                         type = if (decodedUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    ) {
-                        this.quality = Qualities.Unknown.value
-                        this.referer = mainUrl
-                    }
+                    )
                 )
             }
         }
-    }
-
-    private fun generateRandomString(length: Int = 10): String {
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-        return (1..length).map { chars.random() }.joinToString("")
     }
 }
