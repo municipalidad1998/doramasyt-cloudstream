@@ -15,11 +15,6 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import org.json.JSONObject
-import java.util.Base64
 
 class DoramasYTProvider : MainAPI() {
     override var mainUrl = "https://www.doramasyt.com"
@@ -78,7 +73,6 @@ class DoramasYTProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        // Try AJAX search first (like the site does)
         try {
             val csrfToken = app.get(mainUrl).document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
             val ajaxResponse = app.post(
@@ -90,7 +84,6 @@ class DoramasYTProvider : MainAPI() {
                 )
             )
             
-            // The AJAX response is JSON with search results
             val json = org.json.JSONArray(ajaxResponse.text)
             val results = mutableListOf<SearchResponse>()
             
@@ -112,11 +105,8 @@ class DoramasYTProvider : MainAPI() {
             }
             
             if (results.isNotEmpty()) return results
-        } catch (e: Exception) {
-            // Fallback to regular search
-        }
+        } catch (e: Exception) {}
         
-        // Fallback: regular search
         val url = "$mainUrl/buscar?q=${query}"
         val response = app.get(url, headers = mapOf("Referer" to mainUrl))
         return response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
@@ -141,30 +131,82 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        // Get episodes from AJAX endpoint
+        // Get episodes from AJAX endpoint - returns JSON with eps array
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
+        val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
         
-        if (ajaxUrl != null && ajaxUrl.isNotBlank()) {
+        if (ajaxUrl != null && ajaxUrl.isNotBlank() && csrfToken.isNotBlank()) {
             try {
-                val ajaxResponse = app.post(ajaxUrl, headers = mapOf(
-                    "Referer" to url,
-                    "X-Requested-With" to "XMLHttpRequest"
-                ))
-                val ajaxDoc = ajaxResponse.document
-                
-                ajaxDoc.select("a[href*='/ver/'], li a[href*='/ver/']").forEach { ep ->
-                    val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-                    val epText = ep.text().trim()
-                    val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
-                    val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-
-                    episodes.add(
-                        newEpisode(epHref) {
-                            this.name = epTitle
-                            this.episode = epNumber
-                        }
+                // First page of episodes
+                val ajaxResponse = app.post(
+                    ajaxUrl,
+                    data = mapOf("_token" to csrfToken),
+                    headers = mapOf(
+                        "Referer" to url,
+                        "X-Requested-With" to "XMLHttpRequest"
                     )
+                )
+                
+                val json = org.json.JSONObject(ajaxResponse.text)
+                val epsArray = json.optJSONArray("eps")
+                
+                if (epsArray != null) {
+                    for (i in 0 until epsArray.length()) {
+                        val ep = epsArray.getJSONObject(i)
+                        val epHref = fixUrlNull(ep.optString("url")) ?: continue
+                        val epNumber = ep.optInt("episodio", i + 1)
+                        val epTitle = "Episodio $epNumber"
+
+                        episodes.add(
+                            newEpisode(epHref) {
+                                this.name = epTitle
+                                this.episode = epNumber
+                            }
+                        )
+                    }
+                }
+                
+                // Get additional pages if there are more episodes
+                val paginateUrl = json.optString("paginate_url", "")
+                val perpage = json.optInt("perpage", 50)
+                val totalEps = json.optInt("total", epsArray?.length() ?: 0)
+                
+                if (paginateUrl.isNotBlank() && totalEps > perpage) {
+                    val totalPages = (totalEps + perpage - 1) / perpage
+                    for (page in 2..totalPages) {
+                        try {
+                            val pageResponse = app.post(
+                                paginateUrl,
+                                data = mapOf("_token" to csrfToken, "p" to page.toString()),
+                                headers = mapOf(
+                                    "Referer" to url,
+                                    "X-Requested-With" to "XMLHttpRequest"
+                                )
+                            )
+                            
+                            val pageJson = org.json.JSONObject(pageResponse.text)
+                            val capsArray = pageJson.optJSONArray("caps")
+                            
+                            if (capsArray != null) {
+                                for (i in 0 until capsArray.length()) {
+                                    val ep = capsArray.getJSONObject(i)
+                                    val epHref = fixUrlNull(ep.optString("url")) ?: continue
+                                    val epNumber = ep.optInt("episodio", i + 1 + (page - 1) * perpage)
+                                    val epTitle = "Episodio $epNumber"
+
+                                    episodes.add(
+                                        newEpisode(epHref) {
+                                            this.name = epTitle
+                                            this.episode = epNumber
+                                        }
+                                    )
+                                }
+                            }
+                        } catch (e: Exception) {
+                            break
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 // Fallback below
