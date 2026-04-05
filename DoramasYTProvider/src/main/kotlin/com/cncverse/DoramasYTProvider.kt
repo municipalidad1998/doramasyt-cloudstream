@@ -278,11 +278,41 @@ class DoramasYTProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // Visit homepage first to establish session
+        app.get(mainUrl)
+        
+        // Now visit the episode page
         val response = app.get(data)
         val document = response.document
 
-        // Extract direct download links (Gofile, Pixeldrain, Mega) - these work without Cloudflare
-        document.select("a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='mega.nz'], a[href*='mega.co.nz']").forEach { link ->
+        // Extract resource_token from the page
+        var resourceToken = ""
+        document.select("script").forEach { script ->
+            val scriptData = script.data()
+            val tokenMatch = Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(scriptData)
+            if (tokenMatch != null) {
+                resourceToken = tokenMatch.groupValues[1]
+            }
+        }
+
+        // Get the player key
+        val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
+
+        // Extract all server buttons
+        document.select("button.play-video[data-player]").forEach { btn ->
+            val serverName = btn.text().trim()
+            val encryptedData = btn.attr("data-player")
+            val usaApi = btn.attr("data-usa-api")
+            
+            if (encryptedData.isNotBlank()) {
+                // Build player URL: https://www.doramasyt.com/reproductor?video=ENCRYPTED&player=NAME&token=TOKEN
+                val playerUrl = "${playerKey}${encryptedData}&player=${java.net.URLEncoder.encode(serverName, "UTF-8")}&token=$resourceToken"
+                extractFromReproductor(playerUrl, serverName, callback)
+            }
+        }
+
+        // Also extract direct download links (Gofile, Pixeldrain, Mega)
+        document.select("a.btn[href*='gofile.io'], a.btn[href*='pixeldrain.com'], a.btn[href*='mega.nz'], a.btn[href*='mega.co.nz']").forEach { link ->
             val href = link.attr("href").trim()
             val serverName = link.text().trim()
             
@@ -300,38 +330,47 @@ class DoramasYTProvider : MainAPI() {
             }
         }
 
-        // Try to get player links from buttons
-        document.select("button.play-video[data-player]").forEach { btn ->
-            val serverName = btn.text().trim()
-            val encryptedData = btn.attr("data-player")
+        return true
+    }
+
+    private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val response = app.get(
+                url,
+                headers = mapOf(
+                    "Referer" to mainUrl,
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            )
+            val document = response.document
             
-            if (encryptedData.isNotBlank()) {
-                try {
-                    val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-                    val playerUrl = "${playerKey}$encryptedData&player=$serverName"
-                    
-                    val playerResponse = app.get(
-                        playerUrl,
-                        headers = mapOf(
-                            "Referer" to data,
-                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                        )
-                    )
-                    val playerDoc = playerResponse.document
-                    
-                    playerDoc.select("iframe").forEach { iframe ->
-                        val src = iframe.attr("src").trim()
-                        if (src.isNotBlank() && src.startsWith("http")) {
-                            extractVideoLink(src, serverName, callback)
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Ignore player errors
+            // Look for iframe in the reproductor page
+            document.select("iframe").forEach { iframe ->
+                val src = iframe.attr("src").trim()
+                if (src.isNotBlank() && src.startsWith("http")) {
+                    extractVideoLink(src, serverName, callback)
                 }
             }
-        }
-
-        return true
+            
+            // Look for video URLs in scripts
+            document.select("script").forEach { script ->
+                val scriptData = script.data()
+                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
+                    val videoUrl = match.groupValues[1]
+                    callback.invoke(
+                        ExtractorLink(
+                            source = "$name - $serverName",
+                            name = "$name - $serverName",
+                            url = videoUrl,
+                            referer = mainUrl,
+                            quality = Qualities.Unknown.value,
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {}
     }
 
     private suspend fun extractVideoLink(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
@@ -368,6 +407,48 @@ class DoramasYTProvider : MainAPI() {
                             referer = "https://filemoon.sx",
                             quality = Qualities.Unknown.value,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        )
+                    )
+                }
+            }
+            decodedUrl.contains("dood") || decodedUrl.contains("doodstream") -> {
+                val pageResponse = app.get(decodedUrl)
+                val pageDoc = pageResponse.document
+                val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
+                val dsMatch = Regex("""/pass_md5/([^"']*)""").find(scriptData)
+                if (dsMatch != null) {
+                    val passUrl = "https://doodstream.com/pass_md5/${dsMatch.groupValues[1]}"
+                    val token = app.get(passUrl).text
+                    if (token.isNotBlank()) {
+                        callback.invoke(
+                            ExtractorLink(
+                                source = "$name - Doodstream",
+                                name = "$name - Doodstream",
+                                url = "$token${generateRandomString()}",
+                                referer = "https://doodstream.com",
+                                quality = Qualities.Unknown.value,
+                                type = ExtractorLinkType.VIDEO,
+                                headers = mapOf("Referer" to "https://doodstream.com/")
+                            )
+                        )
+                    }
+                }
+            }
+            decodedUrl.contains("streamtape") -> {
+                val pageResponse = app.get(decodedUrl)
+                val pageDoc = pageResponse.document
+                val scriptData = pageDoc.select("script").map { it.data() }.joinToString("\n")
+                val urlMatch = Regex("""innerHTML\s*=\s*["']([^"']+)["']""").find(scriptData)
+                if (urlMatch != null) {
+                    val videoUrl = urlMatch.groupValues[1]
+                    callback.invoke(
+                        ExtractorLink(
+                            source = "$name - Streamtape",
+                            name = "$name - Streamtape",
+                            url = videoUrl,
+                            referer = "https://streamtape.com",
+                            quality = Qualities.Unknown.value,
+                            type = ExtractorLinkType.VIDEO
                         )
                     )
                 }
@@ -467,5 +548,10 @@ class DoramasYTProvider : MainAPI() {
                 )
             }
         }
+    }
+
+    private fun generateRandomString(length: Int = 10): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return (1..length).map { chars.random() }.joinToString("")
     }
 }
