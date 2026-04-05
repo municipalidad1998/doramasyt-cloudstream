@@ -321,18 +321,6 @@ class DoramasYTProvider : MainAPI() {
 
         return true
     }
-        }
-
-        // Also check for iframes directly
-        document.select("iframe").forEach { iframe ->
-            val src = iframe.attr("src").trim()
-            if (src.isNotBlank() && src.startsWith("http")) {
-                extractVideoLink(src, "Server", callback)
-            }
-        }
-
-        return true
-    }
 
     private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
         try {
