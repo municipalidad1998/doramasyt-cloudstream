@@ -133,14 +133,15 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        // Get episodes from AJAX endpoint - returns JSON
+        // Try AJAX endpoint first
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
         
+        var ajaxSuccess = false
+        
         if (ajaxUrl != null && ajaxUrl.isNotBlank() && csrfToken.isNotBlank()) {
             try {
-                // First page of episodes
                 val ajaxResponse = app.post(
                     ajaxUrl,
                     data = mapOf("_token" to csrfToken),
@@ -154,7 +155,8 @@ class DoramasYTProvider : MainAPI() {
                 val json = org.json.JSONObject(ajaxResponse.text)
                 val epsArray = json.optJSONArray("eps")
                 
-                if (epsArray != null) {
+                if (epsArray != null && epsArray.length() > 0) {
+                    ajaxSuccess = true
                     for (i in 0 until epsArray.length()) {
                         val ep = epsArray.getJSONObject(i)
                         val epHref = fixUrlNull(ep.optString("url")) ?: continue
@@ -168,69 +170,101 @@ class DoramasYTProvider : MainAPI() {
                             }
                         )
                     }
-                }
-                
-                // Get additional pages if there are more episodes
-                val paginateUrl = json.optString("paginate_url", "")
-                val perpage = json.optInt("perpage", 50)
-                val totalEps = json.optInt("total", epsArray?.length() ?: 0)
-                
-                if (paginateUrl.isNotBlank() && totalEps > perpage) {
-                    val totalPages = (totalEps + perpage - 1) / perpage
-                    for (page in 2..totalPages) {
-                        try {
-                            val pageResponse = app.post(
-                                paginateUrl,
-                                data = mapOf("_token" to csrfToken, "p" to page.toString()),
-                                headers = mapOf(
-                                    "Referer" to url,
-                                    "X-Requested-With" to "XMLHttpRequest",
-                                    "Accept" to "application/json"
+                    
+                    // Get additional pages
+                    val paginateUrl = json.optString("paginate_url", "")
+                    val perpage = json.optInt("perpage", 50)
+                    val totalEps = json.optInt("total", epsArray.length())
+                    
+                    if (paginateUrl.isNotBlank() && totalEps > perpage) {
+                        val totalPages = (totalEps + perpage - 1) / perpage
+                        for (page in 2..totalPages) {
+                            try {
+                                val pageResponse = app.post(
+                                    paginateUrl,
+                                    data = mapOf("_token" to csrfToken, "p" to page.toString()),
+                                    headers = mapOf(
+                                        "Referer" to url,
+                                        "X-Requested-With" to "XMLHttpRequest",
+                                        "Accept" to "application/json"
+                                    )
                                 )
+                                
+                                val pageJson = org.json.JSONObject(pageResponse.text)
+                                val capsArray = pageJson.optJSONArray("caps")
+                                
+                                if (capsArray != null) {
+                                    for (i in 0 until capsArray.length()) {
+                                        val ep = capsArray.getJSONObject(i)
+                                        val epHref = fixUrlNull(ep.optString("url")) ?: continue
+                                        val epNumber = ep.optInt("episodio", i + 1 + (page - 1) * perpage)
+                                        val epTitle = "Episodio $epNumber"
+
+                                        episodes.add(
+                                            newEpisode(epHref) {
+                                                this.name = epTitle
+                                                this.episode = epNumber
+                                            }
+                                        )
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                break
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // AJAX failed, will use fallback
+            }
+        }
+        
+        // Fallback: follow "Siguiente" links from episode pages
+        if (!ajaxSuccess || episodes.isEmpty()) {
+            val verAhoraLink = document.selectFirst("a[href*='/ver/']")
+            if (verAhoraLink != null) {
+                val firstEpHref = fixUrlNull(verAhoraLink.attr("href"))
+                if (firstEpHref != null) {
+                    var currentEpUrl = firstEpHref
+                    var epNumber = 1
+                    val visitedUrls = mutableSetOf<String>()
+                    
+                    while (currentEpUrl != null && epNumber <= 200 && !visitedUrls.contains(currentEpUrl)) {
+                        visitedUrls.add(currentEpUrl)
+                        
+                        try {
+                            val epResponse = app.get(currentEpUrl)
+                            val epDoc = epResponse.document
+                            
+                            val epTitle = "Episodio $epNumber"
+                            episodes.add(
+                                newEpisode(currentEpUrl) {
+                                    this.name = epTitle
+                                    this.episode = epNumber
+                                }
                             )
                             
-                            val pageJson = org.json.JSONObject(pageResponse.text)
-                            val capsArray = pageJson.optJSONArray("caps")
+                            // Find "Siguiente" button
+                            val siguienteLink = epDoc.select("a[href*='/ver/']").firstOrNull { a ->
+                                a.text().contains("Siguiente", ignoreCase = true)
+                            }
                             
-                            if (capsArray != null) {
-                                for (i in 0 until capsArray.length()) {
-                                    val ep = capsArray.getJSONObject(i)
-                                    val epHref = fixUrlNull(ep.optString("url")) ?: continue
-                                    val epNumber = ep.optInt("episodio", i + 1 + (page - 1) * perpage)
-                                    val epTitle = "Episodio $epNumber"
-
-                                    episodes.add(
-                                        newEpisode(epHref) {
-                                            this.name = epTitle
-                                            this.episode = epNumber
-                                        }
-                                    )
+                            if (siguienteLink != null) {
+                                val nextUrl = fixUrlNull(siguienteLink.attr("href"))
+                                if (nextUrl != null && nextUrl != currentEpUrl) {
+                                    currentEpUrl = nextUrl
+                                    epNumber++
+                                } else {
+                                    currentEpUrl = null
                                 }
+                            } else {
+                                currentEpUrl = null
                             }
                         } catch (e: Exception) {
                             break
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // Fallback below
-            }
-        }
-        
-        // Fallback: parse links from the page
-        if (episodes.isEmpty()) {
-            document.select("a[href*='/ver/']").forEach { ep ->
-                val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-                val epText = ep.text().trim()
-                val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
-                val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
-
-                episodes.add(
-                    newEpisode(epHref) {
-                        this.name = epTitle
-                        this.episode = epNumber
-                    }
-                )
             }
         }
 
@@ -254,22 +288,18 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
-        // Get the player key from the page
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
         
-        // Extract encrypted player data from buttons
         document.select("button.play-video[data-player]").forEach { btn ->
             val serverName = btn.text().trim().lowercase()
             val encryptedData = btn.attr("data-player")
             
             if (encryptedData.isNotBlank()) {
-                // Build the reproductor URL with encrypted data
                 val videoUrl = "${playerKey}$encryptedData&player=$serverName"
                 extractFromReproductor(videoUrl, serverName, callback)
             }
         }
 
-        // Also check for iframes directly
         document.select("iframe").forEach { iframe ->
             val src = iframe.attr("src").trim()
             if (src.isNotBlank() && src.startsWith("http")) {
@@ -285,7 +315,6 @@ class DoramasYTProvider : MainAPI() {
             val response = app.get(url, headers = mapOf("Referer" to mainUrl))
             val document = response.document
             
-            // Look for iframe in the reproductor page
             document.select("iframe").forEach { iframe ->
                 val src = iframe.attr("src").trim()
                 if (src.isNotBlank() && src.startsWith("http")) {
@@ -293,7 +322,6 @@ class DoramasYTProvider : MainAPI() {
                 }
             }
             
-            // Look for video URLs in scripts
             document.select("script").forEach { script ->
                 val scriptData = script.data()
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
@@ -311,9 +339,7 @@ class DoramasYTProvider : MainAPI() {
                     )
                 }
             }
-        } catch (e: Exception) {
-            // Ignore errors
-        }
+        } catch (e: Exception) {}
     }
 
     private suspend fun extractVideoLink(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
