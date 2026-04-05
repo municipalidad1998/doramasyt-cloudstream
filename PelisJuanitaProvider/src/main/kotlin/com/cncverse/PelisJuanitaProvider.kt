@@ -32,17 +32,22 @@ class PelisJuanitaProvider : MainAPI() {
     )
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a = this.selectFirst("a") ?: return null
+        val a = this.selectFirst("a[href]") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
-        val title = this.selectFirst("h2, h3, .title, .texto-tira")?.text()?.trim() ?: return null
+        val fullHref = if (href.startsWith("http")) href else "$mainUrl$href"
+        
+        val title = this.selectFirst(".texto-tira, .texto-grid, h2, h3, .entry-title")?.text()?.trim()
+            ?: a.attr("title")
+            ?: return null
+        
         val img = this.selectFirst("img")
-        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: "")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
 
-        val type = if (href.contains("/series/")) TvType.TvSeries else TvType.Movie
+        val type = if (fullHref.contains("/series/")) TvType.TvSeries else TvType.Movie
 
         return newMovieSearchResponse(
             name = title,
-            url = href,
+            url = fullHref,
             type = type
         ) {
             this.posterUrl = poster
@@ -52,7 +57,9 @@ class PelisJuanitaProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page > 1) "${request.data}page/$page/" else request.data
         val response = app.get(url)
-        val homeList = response.document.select(".item-tira, .grid-item, article, .card").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+
+        val homeList = document.select(".item-tira, .grid-item, .card, article, .post").mapNotNull { it.toSearchResponse() }
 
         return newHomePageResponse(
             listOf(
@@ -62,9 +69,10 @@ class PelisJuanitaProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        val url = "$mainUrl/movies/?s=${query}"
+        val url = "$mainUrl/movies/search?s=${query}"
         val response = app.get(url)
-        return response.document.select(".grid-item, article, .card").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+        return document.select(".item-tira, .grid-item, .card, article, .post").mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -72,29 +80,31 @@ class PelisJuanitaProvider : MainAPI() {
         val document = response.document
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
-        val poster = fixUrlNull(document.selectFirst("img")?.attr("data-src") ?: document.selectFirst("img")?.attr("src") ?: "")
+        
+        val img = document.selectFirst("img")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
         val backgroundPosterUrl = poster
-        val plot = document.select(".description, .sinopsis, p").text().trim()
-        val yearText = Regex("""(\d{4})""").find(document.text())?.groupValues?.get(1)?.toIntOrNull()
+        
+        val plot = document.select(".entry-content p, .description, .sinopsis, .resumen").text().trim()
+            .ifBlank { document.selectFirst("meta[name=description]")?.attr("content")?.trim() ?: "" }
+        
         val tags = document.select("a[href*='/genero/'], a[href*='/categoria/']").map { it.text().trim() }
 
         val episodes = mutableListOf<Episode>()
         
-        // Check if it's a series
-        if (url.contains("/series/")) {
-            document.select("a[href*='/episodio/'], a[href*='/temporada/']").forEach { ep ->
-                val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-                val epText = ep.text().trim()
-                val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ") }
-                val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        document.select("a[href*='/episodio/'], a[href*='/capitulo/'], a[href*='/ver/']").forEach { ep ->
+            val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+            val fullEpHref = if (epHref.startsWith("http")) epHref else "$mainUrl$epHref"
+            val epText = ep.text().trim()
+            val epTitle = epText.ifBlank { fullEpHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+            val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
 
-                episodes.add(
-                    newEpisode(epHref) {
-                        this.name = epTitle
-                        this.episode = epNumber
-                    }
-                )
-            }
+            episodes.add(
+                newEpisode(fullEpHref) {
+                    this.name = epTitle
+                    this.episode = epNumber
+                }
+            )
         }
 
         val type = if (episodes.isNotEmpty()) TvType.TvSeries else TvType.Movie
@@ -104,7 +114,6 @@ class PelisJuanitaProvider : MainAPI() {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
-                this.year = yearText
                 this.tags = tags
             }
         } else {
@@ -112,7 +121,6 @@ class PelisJuanitaProvider : MainAPI() {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
-                this.year = yearText
                 this.tags = tags
             }
         }
