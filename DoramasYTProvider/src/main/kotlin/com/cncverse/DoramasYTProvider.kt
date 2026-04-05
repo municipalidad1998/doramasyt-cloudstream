@@ -279,13 +279,22 @@ class DoramasYTProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // First, visit the homepage to establish session
+        app.get(mainUrl)
+        
+        // Then visit the episode page to get the resource token
         val response = app.get(data)
         val document = response.document
 
-        // Get the resource token from the page
-        val resourceToken = document.selectFirst("script:containsData(resource_token)")?.data()
-            ?.let { Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(it)?.groupValues?.get(1) }
-            ?: ""
+        // Get the resource token from the page - it's embedded in a script tag
+        var resourceToken = ""
+        document.select("script").forEach { script ->
+            val scriptData = script.data()
+            val tokenMatch = Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(scriptData)
+            if (tokenMatch != null) {
+                resourceToken = tokenMatch.groupValues[1]
+            }
+        }
 
         // Get the player key
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
