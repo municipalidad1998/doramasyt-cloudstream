@@ -1,0 +1,2 @@
+C:\Users\oscar\OneDrive\Documentos\PAGINA WEB DENILSON\DoramasYT-CloudStream\DoramasYTProvider\src\main\kotlin\com\doramasyt\DoramasYTPlugin.kt
+C:\Users\oscar\OneDrive\Documentos\PAGINA WEB DENILSON\DoramasYT-CloudStream\DoramasYTProvider\src\main\kotlin\com\doramasyt\DoramasYTProvider.kt
