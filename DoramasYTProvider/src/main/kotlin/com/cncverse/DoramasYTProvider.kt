@@ -133,7 +133,6 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        // Try AJAX endpoint first
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
@@ -171,7 +170,6 @@ class DoramasYTProvider : MainAPI() {
                         )
                     }
                     
-                    // Get additional pages
                     val paginateUrl = json.optString("paginate_url", "")
                     val perpage = json.optInt("perpage", 50)
                     val totalEps = json.optInt("total", epsArray.length())
@@ -214,12 +212,9 @@ class DoramasYTProvider : MainAPI() {
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // AJAX failed, will use fallback
-            }
+            } catch (e: Exception) {}
         }
         
-        // Fallback: follow "Siguiente" links from episode pages
         if (!ajaxSuccess || episodes.isEmpty()) {
             val verAhoraLink = document.selectFirst("a[href*='/ver/']")
             if (verAhoraLink != null) {
@@ -244,7 +239,6 @@ class DoramasYTProvider : MainAPI() {
                                 }
                             )
                             
-                            // Find "Siguiente" button
                             val siguienteLink = epDoc.select("a[href*='/ver/']").firstOrNull { a ->
                                 a.text().contains("Siguiente", ignoreCase = true)
                             }
@@ -288,18 +282,39 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
+        // Get the resource token from the page
+        val resourceToken = document.selectFirst("script:containsData(resource_token)")?.data()
+            ?.let { Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(it)?.groupValues?.get(1) }
+            ?: ""
+
+        // Get the player key
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-        
+
+        // Extract all server buttons and their encrypted data
         document.select("button.play-video[data-player]").forEach { btn ->
             val serverName = btn.text().trim().lowercase()
             val encryptedData = btn.attr("data-player")
             
             if (encryptedData.isNotBlank()) {
-                val videoUrl = "${playerKey}$encryptedData&player=$serverName"
-                extractFromReproductor(videoUrl, serverName, callback)
+                // Build the full player URL with token
+                val playerUrl = "${playerKey}$encryptedData&player=$serverName&token=$resourceToken"
+                extractFromReproductor(playerUrl, serverName, callback)
             }
         }
 
+        // Also check for iframes directly
+        document.select("iframe").forEach { iframe ->
+            val src = iframe.attr("src").trim()
+            if (src.isNotBlank() && src.startsWith("http")) {
+                extractVideoLink(src, "Server", callback)
+            }
+        }
+
+        return true
+    }
+        }
+
+        // Also check for iframes directly
         document.select("iframe").forEach { iframe ->
             val src = iframe.attr("src").trim()
             if (src.isNotBlank() && src.startsWith("http")) {
@@ -312,9 +327,16 @@ class DoramasYTProvider : MainAPI() {
 
     private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val response = app.get(url, headers = mapOf("Referer" to mainUrl))
+            val response = app.get(
+                url,
+                headers = mapOf(
+                    "Referer" to mainUrl,
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                )
+            )
             val document = response.document
             
+            // Look for iframe in the reproductor page
             document.select("iframe").forEach { iframe ->
                 val src = iframe.attr("src").trim()
                 if (src.isNotBlank() && src.startsWith("http")) {
@@ -322,6 +344,7 @@ class DoramasYTProvider : MainAPI() {
                 }
             }
             
+            // Look for video URLs in scripts
             document.select("script").forEach { script ->
                 val scriptData = script.data()
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
