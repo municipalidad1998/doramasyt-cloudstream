@@ -117,9 +117,14 @@ class DoramasYTProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val mainResponse = app.get(url)
+        // First, get the main page to establish session and get cookies
+        val homeResponse = app.get(mainUrl)
+        val homeCookies = homeResponse.cookies
+        
+        // Now get the dorama page with the same session
+        val mainResponse = app.get(url, cookies = homeCookies)
         val document = mainResponse.document
-        val cookies = mainResponse.cookies
+        val allCookies = mainResponse.cookies
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
         
@@ -152,7 +157,7 @@ class DoramasYTProvider : MainAPI() {
                         "X-Requested-With" to "XMLHttpRequest",
                         "Accept" to "application/json"
                     ),
-                    cookies = cookies
+                    cookies = allCookies
                 )
                 
                 val json = org.json.JSONObject(ajaxResponse.text)
@@ -191,7 +196,7 @@ class DoramasYTProvider : MainAPI() {
                                     "X-Requested-With" to "XMLHttpRequest",
                                     "Accept" to "application/json"
                                 ),
-                                cookies = cookies
+                                cookies = allCookies
                             )
                             
                             val pageJson = org.json.JSONObject(pageResponse.text)
