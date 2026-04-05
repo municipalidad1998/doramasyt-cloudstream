@@ -15,11 +15,6 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import org.json.JSONObject
-import java.util.Base64
 
 class DoramasYTProvider : MainAPI() {
     override var mainUrl = "https://www.doramasyt.com"
@@ -82,7 +77,6 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(url, headers = mapOf("Referer" to mainUrl))
         val results = response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
         
-        // If no results, try with different URL format
         if (results.isEmpty()) {
             val url2 = "$mainUrl/doramas?q=${query}"
             val response2 = app.get(url2, headers = mapOf("Referer" to mainUrl))
@@ -178,31 +172,18 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
-        // Get the player key and resource token
+        // Get the player key
         val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
         
-        // Extract encrypted player data from buttons
+        // Extract encrypted player data from buttons and try each server
         document.select("button.play-video[data-player]").forEach { btn ->
             val serverName = btn.text().trim().lowercase()
             val encryptedData = btn.attr("data-player")
             
             if (encryptedData.isNotBlank()) {
-                try {
-                    // Try to decrypt the data
-                    val decrypted = decryptPlayerData(encryptedData)
-                    if (decrypted.isNotBlank()) {
-                        val videoUrl = "$mainUrl/reproductor?video=$decrypted"
-                        extractFromReproductor(videoUrl, serverName, callback)
-                    }
-                } catch (e: Exception) {
-                    // If decryption fails, try using the encrypted data directly
-                    try {
-                        val videoUrl = "${playerKey}$encryptedData"
-                        extractFromReproductor(videoUrl, serverName, callback)
-                    } catch (e2: Exception) {
-                        // Ignore
-                    }
-                }
+                // Build the reproductor URL with encrypted data
+                val videoUrl = "${playerKey}$encryptedData&player=$serverName"
+                extractFromReproductor(videoUrl, serverName, callback)
             }
         }
 
@@ -217,41 +198,9 @@ class DoramasYTProvider : MainAPI() {
         return true
     }
 
-    private fun decryptPlayerData(encryptedBase64: String): String {
-        try {
-            val json = JSONObject(String(Base64.getDecoder().decode(encryptedBase64)))
-            val iv = Base64.getDecoder().decode(json.getString("iv"))
-            val value = Base64.getDecoder().decode(json.getString("value"))
-            
-            // Common AES keys used by doramasyt
-            val keys = listOf(
-                "2695813570246891",
-                "doramasyt2024key",
-                "doramasyt2025key",
-                "doramasytkey2024",
-                "doramasytkey2025"
-            )
-            
-            for (key in keys) {
-                try {
-                    val keyBytes = key.toByteArray(Charsets.UTF_8)
-                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), IvParameterSpec(iv))
-                    val decrypted = cipher.doFinal(value)
-                    return String(decrypted, Charsets.UTF_8).trim()
-                } catch (e: Exception) {
-                    continue
-                }
-            }
-        } catch (e: Exception) {
-            // Not valid base64/JSON
-        }
-        return ""
-    }
-
     private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val response = app.get(url)
+            val response = app.get(url, headers = mapOf("Referer" to mainUrl))
             val document = response.document
             
             // Look for iframe in the reproductor page
