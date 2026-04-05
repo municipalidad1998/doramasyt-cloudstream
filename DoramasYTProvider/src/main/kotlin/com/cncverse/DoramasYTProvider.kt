@@ -10,7 +10,6 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
@@ -132,6 +131,7 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
+        // Get episodes from AJAX endpoint
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
@@ -302,10 +302,9 @@ class DoramasYTProvider : MainAPI() {
         document.select("button.play-video[data-player]").forEach { btn ->
             val serverName = btn.text().trim()
             val encryptedData = btn.attr("data-player")
-            val usaApi = btn.attr("data-usa-api")
             
             if (encryptedData.isNotBlank()) {
-                // Build player URL: https://www.doramasyt.com/reproductor?video=ENCRYPTED&player=NAME&token=TOKEN
+                // Build player URL with token
                 val playerUrl = "${playerKey}${encryptedData}&player=${java.net.URLEncoder.encode(serverName, "UTF-8")}&token=$resourceToken"
                 extractFromReproductor(playerUrl, serverName, callback)
             }
@@ -324,7 +323,7 @@ class DoramasYTProvider : MainAPI() {
                         url = href,
                         referer = mainUrl,
                         quality = Qualities.Unknown.value,
-                        type = ExtractorLinkType.VIDEO
+                        isM3u8 = false
                     )
                 )
             }
@@ -365,7 +364,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = mainUrl,
                             quality = Qualities.Unknown.value,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            isM3u8 = videoUrl.contains(".m3u8")
                         )
                     )
                 }
@@ -387,7 +386,7 @@ class DoramasYTProvider : MainAPI() {
                         url = decodedUrl,
                         referer = "https://mega.nz",
                         quality = Qualities.Unknown.value,
-                        type = ExtractorLinkType.VIDEO
+                        isM3u8 = false
                     )
                 )
             }
@@ -406,7 +405,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = "https://filemoon.sx",
                             quality = Qualities.Unknown.value,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            isM3u8 = videoUrl.contains(".m3u8")
                         )
                     )
                 }
@@ -427,7 +426,7 @@ class DoramasYTProvider : MainAPI() {
                                 url = "$token${generateRandomString()}",
                                 referer = "https://doodstream.com",
                                 quality = Qualities.Unknown.value,
-                                type = ExtractorLinkType.VIDEO,
+                                isM3u8 = false,
                                 headers = mapOf("Referer" to "https://doodstream.com/")
                             )
                         )
@@ -448,7 +447,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = "https://streamtape.com",
                             quality = Qualities.Unknown.value,
-                            type = ExtractorLinkType.VIDEO
+                            isM3u8 = false
                         )
                     )
                 }
@@ -468,7 +467,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = "https://voe.sx",
                             quality = Qualities.Unknown.value,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            isM3u8 = videoUrl.contains(".m3u8")
                         )
                     )
                 }
@@ -487,7 +486,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = "https://lulustream.com",
                             quality = Qualities.Unknown.value,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            isM3u8 = videoUrl.contains(".m3u8")
                         )
                     )
                 }
@@ -506,7 +505,7 @@ class DoramasYTProvider : MainAPI() {
                             url = videoUrl,
                             referer = "https://mxdrop.net",
                             quality = Qualities.Unknown.value,
-                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            isM3u8 = videoUrl.contains(".m3u8")
                         )
                     )
                 }
@@ -519,7 +518,7 @@ class DoramasYTProvider : MainAPI() {
                         url = decodedUrl,
                         referer = "https://gofile.io",
                         quality = Qualities.Unknown.value,
-                        type = ExtractorLinkType.VIDEO
+                        isM3u8 = false
                     )
                 )
             }
@@ -531,7 +530,7 @@ class DoramasYTProvider : MainAPI() {
                         url = decodedUrl,
                         referer = "https://pixeldrain.com",
                         quality = Qualities.Unknown.value,
-                        type = ExtractorLinkType.VIDEO
+                        isM3u8 = false
                     )
                 )
             }
@@ -543,7 +542,7 @@ class DoramasYTProvider : MainAPI() {
                         url = decodedUrl,
                         referer = mainUrl,
                         quality = Qualities.Unknown.value,
-                        type = if (decodedUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        isM3u8 = decodedUrl.contains(".m3u8")
                     )
                 )
             }
