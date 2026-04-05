@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
+import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -110,13 +111,13 @@ class PeliCineHDProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            newMovieSearchResponse(title, url, TvType.Movie) {
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
                 this.year = yearText
                 this.tags = tags
-            }.newMovieLoadResponse(title, url, TvType.Movie, url)
+            }
         }
     }
 

@@ -108,13 +108,13 @@ class PelisJuanitaProvider : MainAPI() {
                 this.tags = tags
             }
         } else {
-            newMovieSearchResponse(title, url, TvType.Movie) {
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = backgroundPosterUrl
                 this.plot = plot
                 this.year = yearText
                 this.tags = tags
-            }.newMovieLoadResponse(title, url, TvType.Movie, url)
+            }
         }
     }
 
