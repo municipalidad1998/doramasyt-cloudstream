@@ -48,6 +48,7 @@ jobs:
           chmod +x gradlew
           ./gradlew make --no-daemon --stacktrace
           find $GITHUB_WORKSPACE/src -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
+          ls -la $GITHUB_WORKSPACE/builds/
 
       - name: Generate plugins.json
         run: |
@@ -58,6 +59,10 @@ jobs:
           import glob
 
           plugins = []
+          
+          # Find all .cs3 files in the builds directory
+          cs3_files = glob.glob('*.cs3')
+          print(f"Found {len(cs3_files)} .cs3 files: {cs3_files}")
           
           provider_info = {
               'DoramasYTProvider': {
@@ -87,24 +92,48 @@ jobs:
               }
           }
 
-          for provider_dir, info in provider_info.items():
-              cs3_files = glob.glob(f'{provider_dir}*.cs3')
-              if cs3_files:
-                  fname = os.path.basename(cs3_files[0])
-                  fsize = os.path.getsize(cs3_files[0])
+          for cs3_file in cs3_files:
+              fname = os.path.basename(cs3_file)
+              fsize = os.path.getsize(cs3_file)
+              
+              # Try to match with provider info
+              matched = False
+              for provider_dir, info in provider_info.items():
+                  if provider_dir.lower() in fname.lower() or fname.lower().replace('.cs3', '') in provider_dir.lower():
+                      plugins.append({
+                          'url': f'https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/{fname}',
+                          'status': 1,
+                          'version': 1,
+                          'name': info['name'],
+                          'internalName': provider_dir,
+                          'authors': ['municipalidad1998'],
+                          'description': info['description'],
+                          'fileSize': fsize,
+                          'repositoryUrl': 'https://github.com/municipalidad1998/doramasyt-cloudstream',
+                          'language': 'es',
+                          'tvTypes': info['types'],
+                          'iconUrl': f'https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/{provider_dir}/icon.png',
+                          'apiVersion': 1
+                      })
+                      matched = True
+                      break
+              
+              if not matched:
+                  # Use filename as fallback
+                  clean_name = fname.replace('.cs3', '').replace('Provider', '')
                   plugins.append({
                       'url': f'https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/{fname}',
                       'status': 1,
                       'version': 1,
-                      'name': info['name'],
-                      'internalName': provider_dir,
+                      'name': clean_name,
+                      'internalName': fname.replace('.cs3', ''),
                       'authors': ['municipalidad1998'],
-                      'description': info['description'],
+                      'description': f'{clean_name} provider',
                       'fileSize': fsize,
                       'repositoryUrl': 'https://github.com/municipalidad1998/doramasyt-cloudstream',
                       'language': 'es',
-                      'tvTypes': info['types'],
-                      'iconUrl': f'https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/{provider_dir}/icon.png',
+                      'tvTypes': ['Movie', 'TvSeries'],
+                      'iconUrl': '',
                       'apiVersion': 1
                   })
 
@@ -113,7 +142,7 @@ jobs:
           
           print(f'Generated plugins.json with {len(plugins)} plugins')
           for p in plugins:
-              print(f"  - {p['name']}")
+              print(f"  - {p['name']} ({p.get('fileSize', 0)} bytes)")
           PYEOF
 
       - name: Push builds
