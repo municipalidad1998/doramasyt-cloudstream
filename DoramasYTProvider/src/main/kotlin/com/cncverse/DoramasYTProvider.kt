@@ -15,6 +15,11 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import org.json.JSONObject
+import java.util.Base64
 
 class DoramasYTProvider : MainAPI() {
     override var mainUrl = "https://www.doramasyt.com"
@@ -63,9 +68,7 @@ class DoramasYTProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = buildUrl(request.data, page)
         val response = app.get(url)
-        val document = response.document
-
-        val homeList = document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
+        val homeList = response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
 
         return newHomePageResponse(
             listOf(
@@ -76,8 +79,17 @@ class DoramasYTProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse>? {
         val url = "$mainUrl/buscar?q=${query}"
-        val response = app.get(url)
-        return response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
+        val response = app.get(url, headers = mapOf("Referer" to mainUrl))
+        val results = response.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
+        
+        // If no results, try with different URL format
+        if (results.isEmpty()) {
+            val url2 = "$mainUrl/doramas?q=${query}"
+            val response2 = app.get(url2, headers = mapOf("Referer" to mainUrl))
+            return response2.document.select("li.ficha_efecto").mapNotNull { it.toSearchResponse() }
+        }
+        
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -99,18 +111,51 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        document.select("a[href*='/ver/']").forEach { ep ->
-            val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-            val epText = ep.text().trim()
-            val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
-            val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        // Get episodes from AJAX endpoint
+        val ajaxSection = document.selectFirst("section.caplist")
+        val ajaxUrl = ajaxSection?.attr("data-ajax")
+        
+        if (ajaxUrl != null && ajaxUrl.isNotBlank()) {
+            try {
+                val ajaxResponse = app.post(ajaxUrl, headers = mapOf(
+                    "Referer" to url,
+                    "X-Requested-With" to "XMLHttpRequest"
+                ))
+                val ajaxDoc = ajaxResponse.document
+                
+                ajaxDoc.select("a[href*='/ver/'], li a[href*='/ver/']").forEach { ep ->
+                    val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+                    val epText = ep.text().trim()
+                    val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+                    val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
 
-            episodes.add(
-                newEpisode(epHref) {
-                    this.name = epTitle
-                    this.episode = epNumber
+                    episodes.add(
+                        newEpisode(epHref) {
+                            this.name = epTitle
+                            this.episode = epNumber
+                        }
+                    )
                 }
-            )
+            } catch (e: Exception) {
+                // Fallback below
+            }
+        }
+        
+        // Fallback: parse links from the page
+        if (episodes.isEmpty()) {
+            document.select("a[href*='/ver/']").forEach { ep ->
+                val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+                val epText = ep.text().trim()
+                val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+                val epNumber = Regex("""(\d+)""").find(epText)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+
+                episodes.add(
+                    newEpisode(epHref) {
+                        this.name = epTitle
+                        this.episode = epNumber
+                    }
+                )
+            }
         }
 
         val type = if (episodes.size > 1) TvType.TvSeries else TvType.AsianDrama
@@ -133,6 +178,35 @@ class DoramasYTProvider : MainAPI() {
         val response = app.get(data)
         val document = response.document
 
+        // Get the player key and resource token
+        val playerKey = document.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
+        
+        // Extract encrypted player data from buttons
+        document.select("button.play-video[data-player]").forEach { btn ->
+            val serverName = btn.text().trim().lowercase()
+            val encryptedData = btn.attr("data-player")
+            
+            if (encryptedData.isNotBlank()) {
+                try {
+                    // Try to decrypt the data
+                    val decrypted = decryptPlayerData(encryptedData)
+                    if (decrypted.isNotBlank()) {
+                        val videoUrl = "$mainUrl/reproductor?video=$decrypted"
+                        extractFromReproductor(videoUrl, serverName, callback)
+                    }
+                } catch (e: Exception) {
+                    // If decryption fails, try using the encrypted data directly
+                    try {
+                        val videoUrl = "${playerKey}$encryptedData"
+                        extractFromReproductor(videoUrl, serverName, callback)
+                    } catch (e2: Exception) {
+                        // Ignore
+                    }
+                }
+            }
+        }
+
+        // Also check for iframes directly
         document.select("iframe").forEach { iframe ->
             val src = iframe.attr("src").trim()
             if (src.isNotBlank() && src.startsWith("http")) {
@@ -140,15 +214,63 @@ class DoramasYTProvider : MainAPI() {
             }
         }
 
-        document.select("script").forEach { script ->
-            val scriptData = script.data()
-            if (scriptData.contains("jwplayer") || scriptData.contains("player") || scriptData.contains("source")) {
+        return true
+    }
+
+    private fun decryptPlayerData(encryptedBase64: String): String {
+        try {
+            val json = JSONObject(String(Base64.getDecoder().decode(encryptedBase64)))
+            val iv = Base64.getDecoder().decode(json.getString("iv"))
+            val value = Base64.getDecoder().decode(json.getString("value"))
+            
+            // Common AES keys used by doramasyt
+            val keys = listOf(
+                "2695813570246891",
+                "doramasyt2024key",
+                "doramasyt2025key",
+                "doramasytkey2024",
+                "doramasytkey2025"
+            )
+            
+            for (key in keys) {
+                try {
+                    val keyBytes = key.toByteArray(Charsets.UTF_8)
+                    val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(keyBytes, "AES"), IvParameterSpec(iv))
+                    val decrypted = cipher.doFinal(value)
+                    return String(decrypted, Charsets.UTF_8).trim()
+                } catch (e: Exception) {
+                    continue
+                }
+            }
+        } catch (e: Exception) {
+            // Not valid base64/JSON
+        }
+        return ""
+    }
+
+    private suspend fun extractFromReproductor(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val response = app.get(url)
+            val document = response.document
+            
+            // Look for iframe in the reproductor page
+            document.select("iframe").forEach { iframe ->
+                val src = iframe.attr("src").trim()
+                if (src.isNotBlank() && src.startsWith("http")) {
+                    extractVideoLink(src, serverName, callback)
+                }
+            }
+            
+            // Look for video URLs in scripts
+            document.select("script").forEach { script ->
+                val scriptData = script.data()
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
                     val videoUrl = match.groupValues[1]
                     callback.invoke(
                         newExtractorLink(
-                            source = name,
-                            name = name,
+                            source = "$name - $serverName",
+                            name = "$name - $serverName",
                             url = videoUrl,
                             type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                         ) {
@@ -158,9 +280,9 @@ class DoramasYTProvider : MainAPI() {
                     )
                 }
             }
+        } catch (e: Exception) {
+            // Ignore errors
         }
-
-        return true
     }
 
     private suspend fun extractVideoLink(url: String, serverName: String, callback: (ExtractorLink) -> Unit) {

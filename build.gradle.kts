@@ -76,6 +76,7 @@ subprojects {
         implementation("com.github.Blatzar:NiceHttp:0.4.16")
         implementation("org.jsoup:jsoup:1.22.1")
         implementation("androidx.annotation:annotation:1.9.1")
+        implementation("org.json:json:20231013")
     }
 }
 
