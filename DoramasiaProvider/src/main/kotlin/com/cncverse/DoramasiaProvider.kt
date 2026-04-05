@@ -24,16 +24,20 @@ class DoramasiaProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.TvSeries)
 
     override val mainPage = mainPageOf(
-        "$mainUrl/doramas" to "Doramas",
-        "$mainUrl/peliculas" to "Peliculas",
+        "$mainUrl/doramas/" to "Doramas",
+        "$mainUrl/peliculas/" to "Peliculas",
     )
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a = this.selectFirst("a") ?: return null
+        val a = this.selectFirst("a[href]") ?: return null
         val href = fixUrlNull(a.attr("href")) ?: return null
-        val title = this.selectFirst("h3, h2, .title")?.text()?.trim() ?: return null
+        
+        val title = this.selectFirst("h2, h3, .entry-title, .title, .post-title")?.text()?.trim()
+            ?: a.attr("title")
+            ?: return null
+        
         val img = this.selectFirst("img")
-        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: "")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
 
         return newMovieSearchResponse(
             name = title,
@@ -45,9 +49,11 @@ class DoramasiaProvider : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = request.data
+        val url = if (page > 1) "${request.data}page/$page/" else request.data
         val response = app.get(url)
-        val homeList = response.document.select("article, .item, li, .post").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+
+        val homeList = document.select("article, .post, .item, .movie-item, .grid-item").mapNotNull { it.toSearchResponse() }
 
         return newHomePageResponse(
             listOf(
@@ -59,7 +65,8 @@ class DoramasiaProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? {
         val url = "$mainUrl?s=${query}"
         val response = app.get(url)
-        return response.document.select("article, .item, li, .post").mapNotNull { it.toSearchResponse() }
+        val document = response.document
+        return document.select("article, .post, .item").mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
@@ -67,14 +74,19 @@ class DoramasiaProvider : MainAPI() {
         val document = response.document
 
         val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
-        val poster = fixUrlNull(document.selectFirst("img")?.attr("data-src") ?: document.selectFirst("img")?.attr("src") ?: "")
+        
+        val img = document.selectFirst("img")
+        val poster = fixUrlNull(img?.attr("data-src") ?: img?.attr("src") ?: img?.attr("data-lazy-src") ?: "")
         val backgroundPosterUrl = poster
-        val plot = document.select("p, .description, .sinopsis").text().trim()
-        val tags = document.select("a[href*='/genero/'], a[href*='/categoria/']").map { it.text().trim() }
+        
+        val plot = document.select(".entry-content p, .description, .sinopsis").text().trim()
+            .ifBlank { document.selectFirst("meta[name=description]")?.attr("content")?.trim() ?: "" }
+        
+        val tags = document.select("a[href*='/genero/'], a[href*='/categoria/'], a[href*='/tag/']").map { it.text().trim() }
 
         val episodes = mutableListOf<Episode>()
         
-        document.select("a[href*='/ver/'], a[href*='/capitulo/'], a[href*='/episodio/']").forEach { ep ->
+        document.select("a[href*='/episodio/'], a[href*='/capitulo/'], a[href*='/ver/']").forEach { ep ->
             val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
             val epText = ep.text().trim()
             val epTitle = epText.ifBlank { epHref.substringAfterLast("/").replace("-", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
