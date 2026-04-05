@@ -10,7 +10,9 @@ import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 
@@ -131,7 +133,6 @@ class DoramasYTProvider : MainAPI() {
 
         val episodes = mutableListOf<Episode>()
         
-        // Get episodes from AJAX endpoint
         val ajaxSection = document.selectFirst("section.caplist")
         val ajaxUrl = ajaxSection?.attr("data-ajax")
         val csrfToken = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
@@ -317,14 +318,15 @@ class DoramasYTProvider : MainAPI() {
             
             if (href.isNotBlank()) {
                 callback.invoke(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = "$name - $serverName",
                         name = "$name - $serverName",
                         url = href,
-                        referer = mainUrl,
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = false
-                    )
+                        type = ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
             }
         }
@@ -358,14 +360,15 @@ class DoramasYTProvider : MainAPI() {
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""").findAll(scriptData).forEach { match ->
                     val videoUrl = match.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - $serverName",
                             name = "$name - $serverName",
                             url = videoUrl,
-                            referer = mainUrl,
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = videoUrl.contains(".m3u8")
-                        )
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = mainUrl
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
@@ -380,14 +383,15 @@ class DoramasYTProvider : MainAPI() {
         when {
             decodedUrl.contains("mega.nz") || decodedUrl.contains("mega.co.nz") -> {
                 callback.invoke(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = "$name - Mega",
                         name = "$name - Mega",
                         url = decodedUrl,
-                        referer = "https://mega.nz",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = false
-                    )
+                        type = ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = "https://mega.nz"
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
             }
             decodedUrl.contains("filemoon") || decodedUrl.contains("filemoon.sx") -> {
@@ -399,14 +403,15 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - Filemoon",
                             name = "$name - Filemoon",
                             url = videoUrl,
-                            referer = "https://filemoon.sx",
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = videoUrl.contains(".m3u8")
-                        )
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://filemoon.sx"
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
@@ -420,15 +425,16 @@ class DoramasYTProvider : MainAPI() {
                     val token = app.get(passUrl).text
                     if (token.isNotBlank()) {
                         callback.invoke(
-                            ExtractorLink(
+                            newExtractorLink(
                                 source = "$name - Doodstream",
                                 name = "$name - Doodstream",
                                 url = "$token${generateRandomString()}",
-                                referer = "https://doodstream.com",
-                                quality = Qualities.Unknown.value,
-                                isM3u8 = false,
-                                headers = mapOf("Referer" to "https://doodstream.com/")
-                            )
+                                type = ExtractorLinkType.VIDEO
+                            ) {
+                                this.referer = "https://doodstream.com"
+                                this.quality = Qualities.Unknown.value
+                                this.headers = mapOf("Referer" to "https://doodstream.com/")
+                            }
                         )
                     }
                 }
@@ -441,14 +447,15 @@ class DoramasYTProvider : MainAPI() {
                 if (urlMatch != null) {
                     val videoUrl = urlMatch.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - Streamtape",
                             name = "$name - Streamtape",
                             url = videoUrl,
-                            referer = "https://streamtape.com",
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = false
-                        )
+                            type = ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://streamtape.com"
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
@@ -461,14 +468,15 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - Voe",
                             name = "$name - Voe",
                             url = videoUrl,
-                            referer = "https://voe.sx",
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = videoUrl.contains(".m3u8")
-                        )
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://voe.sx"
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
@@ -480,14 +488,15 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - Lulu",
                             name = "$name - Lulu",
                             url = videoUrl,
-                            referer = "https://lulustream.com",
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = videoUrl.contains(".m3u8")
-                        )
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://lulustream.com"
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
@@ -499,51 +508,55 @@ class DoramasYTProvider : MainAPI() {
                 if (videoUrlMatch != null) {
                     val videoUrl = videoUrlMatch.groupValues[1]
                     callback.invoke(
-                        ExtractorLink(
+                        newExtractorLink(
                             source = "$name - MxDrop",
                             name = "$name - MxDrop",
                             url = videoUrl,
-                            referer = "https://mxdrop.net",
-                            quality = Qualities.Unknown.value,
-                            isM3u8 = videoUrl.contains(".m3u8")
-                        )
+                            type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                        ) {
+                            this.referer = "https://mxdrop.net"
+                            this.quality = Qualities.Unknown.value
+                        }
                     )
                 }
             }
             decodedUrl.contains("gofile.io") -> {
                 callback.invoke(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = "$name - Gofile",
                         name = "$name - Gofile",
                         url = decodedUrl,
-                        referer = "https://gofile.io",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = false
-                    )
+                        type = ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = "https://gofile.io"
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
             }
             decodedUrl.contains("pixeldrain") -> {
                 callback.invoke(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = "$name - Pixeldrain",
                         name = "$name - Pixeldrain",
                         url = decodedUrl,
-                        referer = "https://pixeldrain.com",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = false
-                    )
+                        type = ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = "https://pixeldrain.com"
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
             }
             decodedUrl.startsWith("http") -> {
                 callback.invoke(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = "$name - $serverName",
                         name = "$name - $serverName",
                         url = decodedUrl,
-                        referer = mainUrl,
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = decodedUrl.contains(".m3u8")
-                    )
+                        type = if (decodedUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                    ) {
+                        this.referer = mainUrl
+                        this.quality = Qualities.Unknown.value
+                    }
                 )
             }
         }
