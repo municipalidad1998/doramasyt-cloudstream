@@ -12,6 +12,7 @@ cloudstream {
     description = "Doramas con subtitulos en Espanol y Latino"
     authors = listOf("municipalidad1998")
     status = 1
+    apiVersion = 1
     tvTypes = listOf(
         "AsianDrama",
         "TvSeries"

@@ -1,6 +1,7 @@
 version = 1
 
 android {
+    namespace = "com.cncverse.pelicinehd"
     buildFeatures {
         buildConfig = true
     }
@@ -11,6 +12,7 @@ cloudstream {
     description = "Peliculas y series en HD 1080P Latino"
     authors = listOf("municipalidad1998")
     status = 1
+    apiVersion = 1
     tvTypes = listOf(
         "Movie",
         "TvSeries"

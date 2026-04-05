@@ -12,6 +12,7 @@ cloudstream {
     description = "Doramas y series asiaticas en espanol"
     authors = listOf("municipalidad1998")
     status = 1
+    apiVersion = 1
     tvTypes = listOf(
         "AsianDrama",
         "TvSeries"
