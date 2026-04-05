@@ -1,6 +1,7 @@
 version = 1
 
 android {
+    namespace = "com.cncverse.doramasyt"
     buildFeatures {
         buildConfig = true
     }

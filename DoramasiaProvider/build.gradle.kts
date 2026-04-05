@@ -1,6 +1,7 @@
 version = 1
 
 android {
+    namespace = "com.cncverse.doramasia"
     buildFeatures {
         buildConfig = true
     }

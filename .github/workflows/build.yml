@@ -42,14 +42,79 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build Plugins
+      - name: Build All Plugins
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew :DoramasYTProvider:make --no-daemon --stacktrace
+          ./gradlew make --no-daemon --stacktrace
           find $GITHUB_WORKSPACE/src -name "*.cs3" -exec cp {} $GITHUB_WORKSPACE/builds/ \;
-          FILE_SIZE=$(stat -c%s $GITHUB_WORKSPACE/builds/DoramasYTProvider.cs3)
-          printf '[\n    {\n        "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasYTProvider.cs3",\n        "status": 1,\n        "version": 1,\n        "name": "DoramasYT",\n        "internalName": "DoramasYTProvider",\n        "authors": ["municipalidad1998"],\n        "description": "Doramas con subtitulos en Espanol y Latino",\n        "fileSize": %s,\n        "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",\n        "language": "es",\n        "tvTypes": ["AsianDrama", "TvSeries"],\n        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png",\n        "apiVersion": 1\n    }\n]' "$FILE_SIZE" > $GITHUB_WORKSPACE/builds/plugins.json
+
+      - name: Generate plugins.json
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          python3 << 'PYEOF'
+          import json
+          import os
+          import glob
+
+          plugins = []
+          
+          provider_info = {
+              'DoramasYTProvider': {
+                  'name': 'DoramasYT',
+                  'description': 'Doramas con subtitulos en Espanol y Latino',
+                  'types': ['AsianDrama', 'TvSeries']
+              },
+              'DoramasFlixProvider': {
+                  'name': 'DoramasFlix',
+                  'description': 'Doramas subtitulados en espanol',
+                  'types': ['AsianDrama', 'TvSeries']
+              },
+              'DoramasiaProvider': {
+                  'name': 'Doramasia',
+                  'description': 'Doramas y series asiaticas en espanol',
+                  'types': ['AsianDrama', 'TvSeries']
+              },
+              'PelisJuanitaProvider': {
+                  'name': 'PelisJuanita',
+                  'description': 'Peliculas y series en espanol latino HD',
+                  'types': ['Movie', 'TvSeries']
+              },
+              'PeliCineHDProvider': {
+                  'name': 'PeliCineHD',
+                  'description': 'Peliculas y series en HD 1080P Latino',
+                  'types': ['Movie', 'TvSeries']
+              }
+          }
+
+          for provider_dir, info in provider_info.items():
+              cs3_files = glob.glob(f'{provider_dir}*.cs3')
+              if cs3_files:
+                  fname = os.path.basename(cs3_files[0])
+                  fsize = os.path.getsize(cs3_files[0])
+                  plugins.append({
+                      'url': f'https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/{fname}',
+                      'status': 1,
+                      'version': 1,
+                      'name': info['name'],
+                      'internalName': provider_dir,
+                      'authors': ['municipalidad1998'],
+                      'description': info['description'],
+                      'fileSize': fsize,
+                      'repositoryUrl': 'https://github.com/municipalidad1998/doramasyt-cloudstream',
+                      'language': 'es',
+                      'tvTypes': info['types'],
+                      'iconUrl': f'https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/{provider_dir}/icon.png',
+                      'apiVersion': 1
+                  })
+
+          with open('plugins.json', 'w') as f:
+              json.dump(plugins, f, indent=4)
+          
+          print(f'Generated plugins.json with {len(plugins)} plugins')
+          for p in plugins:
+              print(f"  - {p['name']}")
+          PYEOF
 
       - name: Push builds
         run: |
