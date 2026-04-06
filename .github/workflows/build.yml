@@ -1,0 +1,103 @@
+name: Build CS3 Plugins
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código fuente
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Build todos los plugins
+        run: gradle makeAll
+
+      - name: Recopilar .cs3 y generar plugins.json
+        run: |
+          mkdir -p output
+          find . -name "*.cs3" -not -path "./.git/*" -exec cp {} output/ \;
+
+          python3 << 'PYTHON'
+import json, os
+
+providers = [
+    {"n": "DoramasYTProvider",    "name": "DoramasYT",    "d": "Doramas con subtitulos en Espanol y Latino",  "t": ["AsianDrama","TvSeries"]},
+    {"n": "DoramasFlixProvider",  "name": "DoramasFlix",  "d": "Doramas subtitulados en espanol",             "t": ["AsianDrama","TvSeries"]},
+    {"n": "DoramasiaProvider",    "name": "Doramasia",    "d": "Doramas y series asiaticas en espanol",       "t": ["AsianDrama","TvSeries"]},
+    {"n": "PeliCineHDProvider",   "name": "PeliCineHD",   "d": "Peliculas y series en HD 1080P Latino",       "t": ["Movie","TvSeries"]},
+    {"n": "PelisJuanitaProvider", "name": "PelisJuanita", "d": "Peliculas y series en espanol latino HD",     "t": ["Movie","TvSeries"]},
+]
+
+raw  = "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds"
+repo = "https://github.com/municipalidad1998/doramasyt-cloudstream"
+icon = "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main"
+
+plugins = []
+for p in providers:
+    cs3  = f"output/{p['n']}.cs3"
+    size = os.path.getsize(cs3) if os.path.exists(cs3) else 0
+    plugins.append({
+        "url":           f"{raw}/{p['n']}.cs3",
+        "status":        1,
+        "version":       2,
+        "name":          p["name"],
+        "internalName":  p["n"],
+        "authors":       ["municipalidad1998"],
+        "description":   p["d"],
+        "fileSize":      size,
+        "repositoryUrl": repo,
+        "language":      "es",
+        "tvTypes":       p["t"],
+        "iconUrl":       f"{icon}/{p['n']}/icon.png",
+        "apiVersion":    1,
+    })
+
+with open("output/plugins.json", "w") as f:
+    json.dump(plugins, f, indent=4, ensure_ascii=False)
+print(f"✅ plugins.json con {len(plugins)} plugins")
+PYTHON
+
+      - name: Publicar en rama builds
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin builds 2>/dev/null || true
+          git checkout -B builds origin/builds 2>/dev/null || git checkout --orphan builds
+
+          git rm -rf --cached *.cs3 plugins.json 2>/dev/null || true
+
+          cp output/*.cs3     . 2>/dev/null || true
+          cp output/plugins.json .
+
+          git add *.cs3 plugins.json
+          git diff --cached --quiet && echo "Sin cambios" && exit 0
+          git commit -m "Build: $(date +'%Y-%m-%d %H:%M') [$(git log origin/main -1 --pretty=format:'%h')]"
+          git push origin builds
+          echo "✅ Publicado en rama builds"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
