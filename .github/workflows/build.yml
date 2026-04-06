@@ -46,23 +46,21 @@ jobs:
           wget -q "https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar" -O libs/json.jar
           wget -q "https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.3/kotlinx-coroutines-core-jvm-1.7.3.jar" -O libs/coroutines.jar
           
-          # Intentar obtener CloudStream API real de JitPack (varios formatos)
+          # Intentar obtener CloudStream API real de JitPack
+          CS_SIZE=0
           for URL in \
             "https://jitpack.io/com/github/recloudstream/cloudstream/pre-release-SNAPSHOT/cloudstream-pre-release-SNAPSHOT.jar" \
-            "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar" \
-            "https://jitpack.io/com/github/recloudstream/cloudstream/4.7.0/cloudstream-4.7.0.jar"; do
-            wget -q --timeout=30 "$URL" -O libs/cloudstream-api.jar 2>/dev/null
-            SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
-            if [ "$SIZE" -gt "10000" ]; then
-              echo "✅ CloudStream API descargada: $SIZE bytes desde $URL"
+            "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar"; do
+            wget -q --timeout=30 "$URL" -O libs/cloudstream-api.jar 2>/dev/null || true
+            CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+            if [ "$CS_SIZE" -gt "10000" ]; then
+              echo "✅ CloudStream API: $CS_SIZE bytes"
               break
             fi
           done
-          
-          # Si no se pudo descargar, usamos los stubs (fallback)
-          CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
-          if [ "$CS_SIZE" -lt "10000" ]; then
-            echo "⚠️ Usando stubs locales (JitPack no disponible)"
+          if [ "$CS_SIZE" -le "10000" ]; then
+            echo "⚠️ JitPack no disponible - usando stubs"
+            touch libs/cloudstream-api.jar
           fi
           
           echo "Dependencias: $(ls -lh libs/)"
