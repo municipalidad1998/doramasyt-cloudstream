@@ -86,9 +86,10 @@ class PeliCineHDProvider : MainAPI() {
         if (!isMovie) {
             // Series: episodios listados con imágenes TMDB en <li>
             var epNum = 1
-            doc.select("li").toList().filter {
+            val episodeLis = doc.select("li").toList().filter {
                 it.text().contains("x", ignoreCase = true) || it.text().matches(Regex(".*\\d+x\\d+.*"))
-            }.forEach { li ->
+            }
+            for (li in episodeLis) {
                 val epLink = li.selectFirst("a[href]") ?: continue
                 val epHref = fixUrlNull(epLink.attr("href")) ?: continue
                 val epText = li.selectFirst("h2, h3, .episodiotitle")?.text()?.trim()

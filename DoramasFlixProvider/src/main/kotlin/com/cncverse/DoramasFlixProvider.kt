@@ -104,12 +104,12 @@ class DoramasFlixProvider : MainAPI() {
         val episodes = mutableListOf<Episode>()
         // Buscar episodios con varios selectores
         val epLinks = doc.select("a[href*='/ver/'], a.episode, a.ep-link, .seasons a[href]")
-        epLinks.forEach { ep ->
+        for (ep in epLinks) {
             val epHref = fixUrlNull(ep.attr("href")) ?: continue
             val num = Regex("""(\d+)""").find(ep.text() + epHref)
                 ?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
-            episodes.add(newEpisode(epHref) { 
-                name = ep.text().trim().ifBlank { "Episodio $num" }; episode = num 
+            episodes.add(newEpisode(epHref) {
+                name = ep.text().trim().ifBlank { "Episodio $num" }; episode = num
             })
         }
 
