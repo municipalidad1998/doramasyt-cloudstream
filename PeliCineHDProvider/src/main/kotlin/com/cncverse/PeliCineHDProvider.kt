@@ -40,7 +40,7 @@ class PeliCineHDProvider : MainAPI() {
         val isMovie = href.contains("/peliculas/")
         return newMovieSearchResponse(title, fixUrl(href),
             if (isMovie) TvType.Movie else TvType.TvSeries) {
-            posterUrl = poster
+            this.posterUrl = poster
         }
     }
 
@@ -107,8 +107,8 @@ class PeliCineHDProvider : MainAPI() {
 
         val type = if (isMovie) TvType.Movie else TvType.TvSeries
         return newTvSeriesLoadResponse(title, url, type, episodes) {
-            posterUrl = poster; backgroundPosterUrl = bgPoster
-            plot = plot; year = year; tags = tags
+            this.posterUrl = poster; this.backgroundPosterUrl = bgPoster
+            this.plot = plot; this.year = year; this.tags = tags
         }
     }
 
@@ -117,18 +117,18 @@ class PeliCineHDProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
         val doc = app.get(data).document
-        doc.select("iframe[src], iframe[data-src]").forEach { iframe ->
+        for (iframe in doc.select("iframe[src], iframe[data-src]")) {
             val src = (iframe.attr("src").takeIf { it.isNotBlank() }
                 ?: iframe.attr("data-src")).trim()
             if (src.startsWith("http")) extractEmbed(src, callback)
         }
-        doc.select("script").forEach { s ->
+        for (s in doc.select("script")) {
             Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
                 val v = it.groupValues[1]
                 callback.invoke(newExtractorLink(name, name, v,
                     if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                     referer = mainUrl; quality = Qualities.Unknown.value
-                })
+        })
             }
         }
         return true
@@ -137,16 +137,16 @@ class PeliCineHDProvider : MainAPI() {
     private suspend fun extractEmbed(url: String, cb: (ExtractorLink) -> Unit) {
         try {
             val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
-            doc.select("script").forEach { s ->
+            for (s in doc.select("script")) {
                 Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
                     val v = it.groupValues[1]
                     cb.invoke(newExtractorLink(name, name, v,
                         if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                         referer = url; quality = Qualities.Unknown.value
-                    })
+            })
                 }
             }
-            doc.select("iframe[src]").forEach { iframe ->
+            for (iframe in doc.select("iframe[src]")) {
                 val src = iframe.attr("src").trim()
                 if (src.startsWith("http") && src != url) extractEmbed(src, cb)
             }

@@ -109,54 +109,48 @@ class DoramasiaProvider : MainAPI() {
             } catch (_: Exception) {}
         }
         if (episodes.isEmpty()) {
-            doc.select("a[href*='/ver/'],a.episode-link,.episodes a").forEach { a ->
+            for (a in doc.select("a[href*='/ver/'],a.episode-link,.episodes a")) {
                 val epHref = fixUrlNull(a.attr("href")) ?: return@forEach
                 val num = Regex("""(\d+)""").find(a.text())?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
                 episodes.add(newEpisode(epHref) { name = "Episodio $num"; episode = num })
             }
         }
         return newTvSeriesLoadResponse(title, url, TvType.AsianDrama, episodes) {
-            posterUrl = fixUrlNull(poster ?: ""); backgroundPosterUrl = posterUrl
-            plot = plot; year = year; tags = tags
+            posterUrl = fixUrlNull(poster ?: ""); this.backgroundPosterUrl = posterUrl
+            this.plot = plot; this.year = year; this.tags = tags
         }
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val doc = app.get(data, headers = mapOf("Referer" to mainUrl)).document
-        doc.select("iframe[src],iframe[data-src]").forEach { iframe ->
+        for (iframe in doc.select("iframe[src],iframe[data-src]")) {
             val src = (iframe.attr("src").takeIf { it.isNotBlank() } ?: iframe.attr("data-src")).trim()
             if (src.startsWith("http")) extractVideo(src, callback)
         }
-        doc.select("script").forEach { s ->
+        for (s in doc.select("script")) {
             Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
                 val v = it.groupValues[1]
                 callback.invoke(newExtractorLink(name, name, v,
                     if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                     referer = mainUrl; quality = Qualities.Unknown.value })
-            }
+        }
         }
         return true
     }
 
-    private fun Element.realPoster(): String? = listOf(
-        this.selectFirst("img[src*='tmdb']")?.attr("src"),
-        this.selectFirst("img[data-src]")?.attr("data-src"),
-        this.selectFirst("img:not([src^='data:'])")?.attr("src"),
-    ).firstOrNull { !it.isNullOrBlank() && !it.isPlaceholder() }
-
     private suspend fun extractVideo(url: String, cb: (ExtractorLink) -> Unit) {
         try {
             val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
-            doc.select("script").forEach { s ->
+            for (s in doc.select("script")) {
                 Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
                     val v = it.groupValues[1]
                     cb.invoke(newExtractorLink(name, name, v,
                         if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                         referer = url; quality = Qualities.Unknown.value })
-                }
             }
-            doc.select("iframe[src]").forEach { iframe ->
+            }
+            for (iframe in doc.select("iframe[src]")) {
                 val src = iframe.attr("src").trim()
                 if (src.startsWith("http") && src != url) extractVideo(src, cb)
             }

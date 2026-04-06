@@ -54,7 +54,7 @@ class DoramasYTProvider : MainAPI() {
         val title = this.selectFirst("h3.titulo_cap, h3.title_cap, h3")
             ?.text()?.trim() ?: return null
         val poster = fixUrlNull(this.realImageUrl() ?: "")
-        return newMovieSearchResponse(title, href, TvType.AsianDrama) { posterUrl = poster }
+        return newMovieSearchResponse(title, href, TvType.AsianDrama) { this.posterUrl = poster }
     }
 
     private fun buildUrl(baseUrl: String, page: Int) =
@@ -194,8 +194,8 @@ class DoramasYTProvider : MainAPI() {
 
         val type = if (episodes.size > 1) TvType.TvSeries else TvType.AsianDrama
         return newTvSeriesLoadResponse(title, url, type, episodes) {
-            posterUrl = poster; backgroundPosterUrl = bgPoster
-            plot = plot; year = year; tags = tags
+            this.posterUrl = poster; this.backgroundPosterUrl = bgPoster
+            this.plot = plot; this.year = year; this.tags = tags
         }
     }
 
@@ -206,18 +206,18 @@ class DoramasYTProvider : MainAPI() {
         app.get(mainUrl)
         val doc = app.get(data).document
         var token = ""
-        doc.select("script").forEach { s ->
+        for (s in doc.select("script")) {
             Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())
                 ?.let { token = it.groupValues[1] }
         }
         val playerKey = doc.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-        doc.select("button.play-video[data-player]").forEach { btn ->
+        for (btn in doc.select("button.play-video[data-player]")) {
             val enc  = btn.attr("data-player")
             val name2 = btn.text().trim()
             if (enc.isNotBlank()) {
                 val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(name2,"UTF-8")}&token=$token"
                 extractReproductor(pUrl, name2, callback)
-            }
+        }
         }
         doc.select("a.btn[href*='gofile.io'],a.btn[href*='pixeldrain.com'],a.btn[href*='mega.nz']")
             .forEach { link ->
@@ -234,18 +234,18 @@ class DoramasYTProvider : MainAPI() {
         try {
             val doc = app.get(url, headers = mapOf("Referer" to mainUrl,
                 "User-Agent" to "Mozilla/5.0")).document
-            doc.select("iframe").forEach { iframe ->
+            for (iframe in doc.select("iframe")) {
                 val src = iframe.attr("src").trim()
                 if (src.startsWith("http")) extractVideoLink(src, sName, cb)
             }
-            doc.select("script").forEach { s ->
+            for (s in doc.select("script")) {
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""").findAll(s.data())
                     .forEach { m ->
                         val v = m.groupValues[1]
                         cb.invoke(newExtractorLink("$name - $sName", "$name - $sName", v,
                             if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                             referer = mainUrl; quality = Qualities.Unknown.value
-                        })
+            })
                     }
             }
         } catch (_: Exception) {}
@@ -256,17 +256,17 @@ class DoramasYTProvider : MainAPI() {
         val decoded = try { URLDecoder.decode(url, "UTF-8") } catch (_: Exception) { url }
         try {
             val doc = app.get(decoded, headers = mapOf("Referer" to mainUrl)).document
-            doc.select("script").forEach { s ->
+            for (s in doc.select("script")) {
                 Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""").findAll(s.data())
                     .forEach { m ->
                         val v = m.groupValues[1]
                         cb.invoke(newExtractorLink("$name - $sName", "$name - $sName", v,
                             if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                             referer = decoded; quality = Qualities.Unknown.value
-                        })
+            })
                     }
             }
-            doc.select("iframe[src]").forEach { iframe ->
+            for (iframe in doc.select("iframe[src]")) {
                 val src = iframe.attr("src").trim()
                 if (src.startsWith("http") && src != decoded) extractVideoLink(src, sName, cb)
             }

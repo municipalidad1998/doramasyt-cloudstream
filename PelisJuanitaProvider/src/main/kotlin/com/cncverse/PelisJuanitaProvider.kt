@@ -110,7 +110,7 @@ class PelisJuanitaProvider : MainAPI() {
             } catch (_: Exception) {}
         }
         if (episodes.isEmpty()) {
-            doc.select("a[href*='/ver/'],a[href*='/episodio'],a[href*='/capitulo'],.episodes a").forEach { a ->
+            for (a in doc.select("a[href*='/ver/'],a[href*='/episodio'],a[href*='/capitulo'],.episodes a")) {
                 val epHref = fixUrlNull(a.attr("href")) ?: return@forEach
                 val num = Regex("""(\d+)""").find(a.text())?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
                 episodes.add(newEpisode(epHref) { name = a.text().trim().ifBlank { "Episodio $num" }; episode = num })
@@ -118,8 +118,8 @@ class PelisJuanitaProvider : MainAPI() {
         }
         val type = if (url.contains("/peliculas")) TvType.Movie else TvType.AsianDrama
         return newTvSeriesLoadResponse(title, url, type, episodes) {
-            posterUrl = fixUrlNull(poster ?: ""); backgroundPosterUrl = posterUrl
-            plot = plot; year = year; tags = tags
+            posterUrl = fixUrlNull(poster ?: ""); this.backgroundPosterUrl = posterUrl
+            this.plot = plot; this.year = year; this.tags = tags
         }
     }
 
@@ -127,15 +127,15 @@ class PelisJuanitaProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val doc = app.get(data, headers = mapOf("Referer" to mainUrl)).document
         var token = ""
-        doc.select("script").forEach { s ->
+        for (s in doc.select("script")) {
             Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())?.let { token = it.groupValues[1] }
         }
         val playerKey = doc.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-        doc.select("button.play-video[data-player]").forEach { btn ->
+        for (btn in doc.select("button.play-video[data-player]")) {
             val enc = btn.attr("data-player")
             if (enc.isNotBlank()) extractEmbed("${playerKey}${enc}&token=$token", callback)
         }
-        doc.select("iframe[src],iframe[data-src]").forEach { iframe ->
+        for (iframe in doc.select("iframe[src],iframe[data-src]")) {
             val src = (iframe.attr("src").takeIf { it.isNotBlank() } ?: iframe.attr("data-src")).trim()
             if (src.startsWith("http")) extractEmbed(src, callback)
         }
@@ -146,15 +146,15 @@ class PelisJuanitaProvider : MainAPI() {
         try {
             val doc = app.get(url, headers = mapOf("Referer" to mainUrl,
                 "User-Agent" to "Mozilla/5.0")).document
-            doc.select("script").forEach { s ->
+            for (s in doc.select("script")) {
                 Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
                     val v = it.groupValues[1]
                     cb.invoke(newExtractorLink(name, name, v,
                         if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                         referer = url; quality = Qualities.Unknown.value })
-                }
             }
-            doc.select("iframe[src]").forEach { iframe ->
+            }
+            for (iframe in doc.select("iframe[src]")) {
                 val src = iframe.attr("src").trim()
                 if (src.startsWith("http") && src != url) extractEmbed(src, cb)
             }
