@@ -44,31 +44,53 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
           restore-keys: ${{ runner.os }}-gradle-
 
-      - name: Ver tasks disponibles
-        run: gradle tasks --all 2>&1 | grep -i "make\|cs3\|build" || true
-
-      - name: Build cada módulo explícitamente
+      - name: Build con info detallado
         run: |
-          gradle :DoramasYTProvider:make    --stacktrace || echo "DoramasYTProvider falló"
-          gradle :DoramasFlixProvider:make  --stacktrace || echo "DoramasFlixProvider falló"
-          gradle :DoramasiaProvider:make    --stacktrace || echo "DoramasiaProvider falló"
-          gradle :PeliCineHDProvider:make   --stacktrace || echo "PeliCineHDProvider falló"
-          gradle :PelisJuanitaProvider:make --stacktrace || echo "PelisJuanitaProvider falló"
+          gradle :DoramasYTProvider:make --info 2>&1 | tail -50
 
-      - name: Buscar .cs3 en todo el árbol
+      - name: Debug - ver TODOS los archivos creados
         run: |
-          echo "=== Buscando .cs3 ==="
-          find . -name "*.cs3" -not -path "./.git/*" 2>/dev/null | head -20 || true
-          echo "=== Buscando en build/ ==="
-          find . -path "*/build/*" -name "*.cs3" 2>/dev/null | head -20 || true
-          find . -path "*/build/*" -name "*.jar" 2>/dev/null | head -20 || true
+          echo "=== Archivos .cs3 ==="
+          find / -name "*.cs3" 2>/dev/null | grep -v proc | grep -v sys || true
+          echo ""
+          echo "=== Archivos en build/ de cada módulo ==="
+          for m in DoramasYTProvider DoramasFlixProvider DoramasiaProvider PeliCineHDProvider PelisJuanitaProvider; do
+            echo "--- $m/build/ ---"
+            find "$m/build" -type f 2>/dev/null | head -20 || echo "(vacío)"
+          done
+          echo ""
+          echo "=== Directorio builds/ en raíz ==="
+          ls -la builds/ 2>/dev/null || echo "(no existe)"
+
+      - name: Build todos los módulos
+        run: |
+          gradle :DoramasYTProvider:make    || true
+          gradle :DoramasFlixProvider:make  || true
+          gradle :DoramasiaProvider:make    || true
+          gradle :PeliCineHDProvider:make   || true
+          gradle :PelisJuanitaProvider:make || true
+
+      - name: Encontrar .cs3 después del build
+        run: |
+          echo "=== Buscando .cs3 en TODO el sistema ==="
+          find / -name "*.cs3" 2>/dev/null | grep -v "/proc/" | grep -v "/sys/" || echo "Ninguno"
+          echo ""
+          echo "=== Directorio builds/ en raíz ==="
+          ls -la builds/ 2>/dev/null || echo "(no existe)"
+          echo ""
+          echo "=== build/outputs en módulos ==="
+          find . -path "*/build/outputs*" -type f 2>/dev/null | head -20 || true
+          find . -path "*/build/libs*" -type f 2>/dev/null | head -20 || true
 
       - name: Recopilar .cs3
         run: |
           mkdir -p output
-          find . -name "*.cs3" -not -path "./.git/*" -exec cp {} output/ \;
-          find . -name "*.jar" -path "*/build/libs/*" -exec cp {} output/ \;
-          echo "Archivos en output:"
+          # Buscar en todas las ubicaciones posibles
+          find / -name "*.cs3" 2>/dev/null | grep -v "/proc/" | grep -v "/sys/" | \
+            xargs -I{} cp {} output/ 2>/dev/null || true
+          # También buscar en el directorio builds/ de Gradle
+          cp builds/*.cs3 output/ 2>/dev/null || true
+          echo "=== CS3 en output: ==="
           ls -lh output/ || echo "(vacío)"
 
       - name: Generar plugins.json
