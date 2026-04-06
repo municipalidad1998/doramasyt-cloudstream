@@ -44,14 +44,32 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
           restore-keys: ${{ runner.os }}-gradle-
 
-      - name: Build plugins
-        run: gradle makeAll --stacktrace
+      - name: Ver tasks disponibles
+        run: gradle tasks --all 2>&1 | grep -i "make\|cs3\|build" || true
+
+      - name: Build cada módulo explícitamente
+        run: |
+          gradle :DoramasYTProvider:make    --stacktrace || echo "DoramasYTProvider falló"
+          gradle :DoramasFlixProvider:make  --stacktrace || echo "DoramasFlixProvider falló"
+          gradle :DoramasiaProvider:make    --stacktrace || echo "DoramasiaProvider falló"
+          gradle :PeliCineHDProvider:make   --stacktrace || echo "PeliCineHDProvider falló"
+          gradle :PelisJuanitaProvider:make --stacktrace || echo "PelisJuanitaProvider falló"
+
+      - name: Buscar .cs3 en todo el árbol
+        run: |
+          echo "=== Buscando .cs3 ==="
+          find . -name "*.cs3" -not -path "./.git/*" 2>/dev/null | head -20 || true
+          echo "=== Buscando en build/ ==="
+          find . -path "*/build/*" -name "*.cs3" 2>/dev/null | head -20 || true
+          find . -path "*/build/*" -name "*.jar" 2>/dev/null | head -20 || true
 
       - name: Recopilar .cs3
         run: |
           mkdir -p output
           find . -name "*.cs3" -not -path "./.git/*" -exec cp {} output/ \;
-          ls -lh output/ || echo "(ninguno)"
+          find . -name "*.jar" -path "*/build/libs/*" -exec cp {} output/ \;
+          echo "Archivos en output:"
+          ls -lh output/ || echo "(vacío)"
 
       - name: Generar plugins.json
         run: python3 scripts/make_plugins_json.py output
@@ -71,4 +89,4 @@ jobs:
           git diff --cached --quiet && echo "Sin cambios" && exit 0
           git commit -m "Build $(date +'%Y-%m-%d %H:%M') [$(git log origin/main -1 --pretty=format:'%h')]"
           git push origin builds
-          echo "✅ Publicado en rama builds"
+          echo "Publicado en rama builds"
