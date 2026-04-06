@@ -36,32 +36,33 @@ jobs:
           wget -q "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" -O kotlin.zip
           unzip -q kotlin.zip -d /opt/
           echo "/opt/kotlinc/bin" >> $GITHUB_PATH
-          echo "✅ kotlinc instalado"
 
-      - name: Download dependencias (CloudStream API + Jsoup + JSON)
+      - name: Download Jsoup y JSON
         run: |
           mkdir -p libs
-          
-          # CloudStream API stub para compilación
-          wget -q "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar" \
-            -O libs/cloudstream-api.jar 2>/dev/null || \
-          wget -q "https://jitpack.io/com/github/recloudstream/cloudstream/pre-release-SNAPSHOT/cloudstream-pre-release-SNAPSHOT.jar" \
-            -O libs/cloudstream-api.jar 2>/dev/null || true
-          
-          # Jsoup para scraping HTML
           wget -q "https://repo1.maven.org/maven2/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar" -O libs/jsoup.jar
-          
-          # org.json para JSON parsing
           wget -q "https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar" -O libs/json.jar
-          
-          echo "=== Dependencias descargadas ==="
-          ls -lh libs/
+          wget -q "https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.3/kotlinx-coroutines-core-jvm-1.7.3.jar" -O libs/coroutines.jar
+          echo "Dependencias: $(ls -la libs/)"
 
-      - name: Compilar cada provider a .jar
+      - name: Compilar stubs + providers a .jar
         run: |
           mkdir -p build_output
+          CLASSPATH="libs/jsoup.jar:libs/json.jar:libs/coroutines.jar"
+
+          echo "=== Compilando stubs de CloudStream API ==="
+          kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt \
+            -classpath "$CLASSPATH" \
+            -d build_output/cloudstream-stubs.jar \
+            -jvm-target 1.8 -nowarn 2>&1 | tail -5
           
-          CLASSPATH="libs/cloudstream-api.jar:libs/jsoup.jar:libs/json.jar"
+          if [ ! -f build_output/cloudstream-stubs.jar ]; then
+            echo "❌ Stubs fallaron"
+            exit 1
+          fi
+          echo "✅ Stubs compilados"
+          
+          CLASSPATH="libs/jsoup.jar:libs/json.jar:libs/coroutines.jar:build_output/cloudstream-stubs.jar"
           
           PROVIDERS=(
             "DoramasYTProvider"
@@ -73,42 +74,38 @@ jobs:
           
           for PROVIDER in "${PROVIDERS[@]}"; do
             KT_FILE="$PROVIDER/src/main/kotlin/com/cncverse/${PROVIDER}.kt"
-            echo "Compilando $PROVIDER..."
-            
+            echo "=== Compilando $PROVIDER ==="
             kotlinc "$KT_FILE" \
               -classpath "$CLASSPATH" \
               -d "build_output/${PROVIDER}.jar" \
-              -jvm-target 1.8 \
-              -nowarn 2>&1 | tail -5 || true
+              -jvm-target 1.8 -nowarn 2>&1 | tail -10
             
             if [ -f "build_output/${PROVIDER}.jar" ]; then
-              echo "✅ $PROVIDER compilado ($(wc -c < build_output/${PROVIDER}.jar) bytes)"
+              echo "✅ ${PROVIDER} compilado ($(wc -c < build_output/${PROVIDER}.jar) bytes)"
             else
-              echo "❌ $PROVIDER falló en compilación"
+              echo "❌ ${PROVIDER} falló"
             fi
           done
 
       - name: Convertir .jar a .cs3 con d8
         run: |
           mkdir -p output
-          
           D8=$(find $ANDROID_SDK_ROOT -name "d8" -type f 2>/dev/null | head -1)
-          echo "d8 encontrado en: $D8"
+          echo "d8: $D8"
           
-          for JAR in build_output/*.jar; do
+          for JAR in build_output/DoramasYTProvider.jar build_output/DoramasFlixProvider.jar \
+                     build_output/DoramasiaProvider.jar build_output/PeliCineHDProvider.jar \
+                     build_output/PelisJuanitaProvider.jar; do
+            if [ ! -f "$JAR" ]; then echo "Skipping $JAR (no existe)"; continue; fi
             PROVIDER=$(basename "$JAR" .jar)
             echo "Convirtiendo $PROVIDER..."
-            
-            mkdir -p "dex_output/$PROVIDER"
-            "$D8" "$JAR" \
-              --output "dex_output/$PROVIDER" \
-              --min-api 21 2>&1 | tail -3 || true
-            
-            if [ -f "dex_output/$PROVIDER/classes.dex" ]; then
-              cp "dex_output/$PROVIDER/classes.dex" "output/${PROVIDER}.cs3"
-              echo "✅ ${PROVIDER}.cs3 creado ($(wc -c < output/${PROVIDER}.cs3) bytes)"
+            mkdir -p "dex_out/$PROVIDER"
+            "$D8" "$JAR" --output "dex_out/$PROVIDER" --min-api 21 2>&1 | tail -5
+            if [ -f "dex_out/$PROVIDER/classes.dex" ]; then
+              cp "dex_out/$PROVIDER/classes.dex" "output/${PROVIDER}.cs3"
+              echo "✅ ${PROVIDER}.cs3 ($(wc -c < output/${PROVIDER}.cs3) bytes)"
             else
-              echo "❌ $PROVIDER falló en conversión DEX"
+              echo "❌ $PROVIDER: sin .dex"
             fi
           done
           
