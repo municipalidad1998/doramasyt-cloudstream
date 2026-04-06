@@ -111,7 +111,7 @@ class PelisJuanitaProvider : MainAPI() {
         }
         if (episodes.isEmpty()) {
             for (a in doc.select("a[href*='/ver/'],a[href*='/episodio'],a[href*='/capitulo'],.episodes a")) {
-                val epHref = fixUrlNull(a.attr("href")) ?: return@forEach
+                val epHref = fixUrlNull(a.attr("href")) ?: continue
                 val num = Regex("""(\d+)""").find(a.text())?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
                 episodes.add(newEpisode(epHref) { name = a.text().trim().ifBlank { "Episodio $num" }; episode = num })
             }

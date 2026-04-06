@@ -51,7 +51,7 @@ class PeliCineHDProvider : MainAPI() {
         val url = buildPage(request.data, page)
         val doc = app.get(url).document
         // Seleccionamos solo <li> que tengan img TMDB (= cards de contenido real)
-        val items = doc.select("li").filter {
+        val items = doc.select("li").toList().filter {
             it.selectFirst("img[src*='tmdb']") != null && it.selectFirst("h2") != null
         }.mapNotNull { it.toSearchResponse() }
         return newHomePageResponse(listOf(HomePageList(request.name, items)))
@@ -59,7 +59,7 @@ class PeliCineHDProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse>? {
         val doc = app.get("$mainUrl/?s=${java.net.URLEncoder.encode(query, "UTF-8")}").document
-        return doc.select("li").filter {
+        return doc.select("li").toList().filter {
             it.selectFirst("img[src*='tmdb']") != null && it.selectFirst("h2") != null
         }.mapNotNull { it.toSearchResponse() }
     }
@@ -86,11 +86,11 @@ class PeliCineHDProvider : MainAPI() {
         if (!isMovie) {
             // Series: episodios listados con imágenes TMDB en <li>
             var epNum = 1
-            doc.select("li").filter {
+            doc.select("li").toList().filter {
                 it.text().contains("x", ignoreCase = true) || it.text().matches(Regex(".*\\d+x\\d+.*"))
             }.forEach { li ->
-                val epLink = li.selectFirst("a[href]") ?: return@forEach
-                val epHref = fixUrlNull(epLink.attr("href")) ?: return@forEach
+                val epLink = li.selectFirst("a[href]") ?: continue
+                val epHref = fixUrlNull(epLink.attr("href")) ?: continue
                 val epText = li.selectFirst("h2, h3, .episodiotitle")?.text()?.trim()
                     ?: epLink.text().trim().ifBlank { "Episodio $epNum" }
                 val seasonMatch = Regex("""(\d+)x(\d+)""").find(li.text())

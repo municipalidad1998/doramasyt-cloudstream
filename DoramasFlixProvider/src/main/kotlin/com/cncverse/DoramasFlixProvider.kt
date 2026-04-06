@@ -75,7 +75,7 @@ class DoramasFlixProvider : MainAPI() {
 
         // Alternativa: buscar en el HTML del homepage por título
         val homeDoc = app.get(mainUrl).document
-        return homeDoc.select("li").filter {
+        return homeDoc.select("li").toList().filter {
             it.text().contains(query, ignoreCase = true)
         }.mapNotNull { it.toSearchResponse() }
     }
@@ -105,7 +105,7 @@ class DoramasFlixProvider : MainAPI() {
         // Buscar episodios con varios selectores
         val epLinks = doc.select("a[href*='/ver/'], a.episode, a.ep-link, .seasons a[href]")
         epLinks.forEach { ep ->
-            val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
+            val epHref = fixUrlNull(ep.attr("href")) ?: continue
             val num = Regex("""(\d+)""").find(ep.text() + epHref)
                 ?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
             episodes.add(newEpisode(epHref) { 
