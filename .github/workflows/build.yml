@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout código fuente
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -23,6 +23,11 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.0'
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -40,18 +45,19 @@ jobs:
         run: |
           mkdir -p output
           find . -name "*.cs3" -not -path "./.git/*" -exec cp {} output/ \;
+          echo "CS3 files:"
+          ls -lh output/*.cs3 2>/dev/null || echo "(ninguno aún)"
 
           python3 << 'PYTHON'
 import json, os
 
 providers = [
-    {"n": "DoramasYTProvider",    "name": "DoramasYT",    "d": "Doramas con subtitulos en Espanol y Latino",  "t": ["AsianDrama","TvSeries"]},
-    {"n": "DoramasFlixProvider",  "name": "DoramasFlix",  "d": "Doramas subtitulados en espanol",             "t": ["AsianDrama","TvSeries"]},
-    {"n": "DoramasiaProvider",    "name": "Doramasia",    "d": "Doramas y series asiaticas en espanol",       "t": ["AsianDrama","TvSeries"]},
-    {"n": "PeliCineHDProvider",   "name": "PeliCineHD",   "d": "Peliculas y series en HD 1080P Latino",       "t": ["Movie","TvSeries"]},
-    {"n": "PelisJuanitaProvider", "name": "PelisJuanita", "d": "Peliculas y series en espanol latino HD",     "t": ["Movie","TvSeries"]},
+    {"n": "DoramasYTProvider",    "name": "DoramasYT",    "d": "Doramas con subtitulos en Espanol y Latino", "t": ["AsianDrama","TvSeries"]},
+    {"n": "DoramasFlixProvider",  "name": "DoramasFlix",  "d": "Doramas subtitulados en espanol",            "t": ["AsianDrama","TvSeries"]},
+    {"n": "DoramasiaProvider",    "name": "Doramasia",    "d": "Doramas y series asiaticas en espanol",      "t": ["AsianDrama","TvSeries"]},
+    {"n": "PeliCineHDProvider",   "name": "PeliCineHD",   "d": "Peliculas y series en HD 1080P Latino",      "t": ["Movie","TvSeries"]},
+    {"n": "PelisJuanitaProvider", "name": "PelisJuanita", "d": "Peliculas y series en espanol latino HD",    "t": ["Movie","TvSeries"]},
 ]
-
 raw  = "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds"
 repo = "https://github.com/municipalidad1998/doramasyt-cloudstream"
 icon = "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main"
@@ -78,7 +84,7 @@ for p in providers:
 
 with open("output/plugins.json", "w") as f:
     json.dump(plugins, f, indent=4, ensure_ascii=False)
-print(f"✅ plugins.json con {len(plugins)} plugins")
+print(f"plugins.json generado con {len(plugins)} plugins")
 PYTHON
 
       - name: Publicar en rama builds
@@ -90,8 +96,7 @@ PYTHON
           git checkout -B builds origin/builds 2>/dev/null || git checkout --orphan builds
 
           git rm -rf --cached *.cs3 plugins.json 2>/dev/null || true
-
-          cp output/*.cs3     . 2>/dev/null || true
+          cp output/*.cs3      . 2>/dev/null || true
           cp output/plugins.json .
 
           git add *.cs3 plugins.json
