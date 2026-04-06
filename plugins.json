@@ -1,102 +1,102 @@
 [
     {
-        "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasFlixProvider.cs3",
-        "status": 1,
-        "version": 1,
-        "name": "DoramasFlix",
-        "internalName": "DoramasFlixProvider",
-        "authors": [
-            "municipalidad1998"
-        ],
-        "description": "Doramas subtitulados en espanol",
-        "fileSize": 17371,
-        "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
-        "language": "es",
-        "tvTypes": [
-            "AsianDrama",
-            "TvSeries"
-        ],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasFlixProvider/icon.png",
-        "apiVersion": 1
-    },
-    {
         "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasYTProvider.cs3",
         "status": 1,
-        "version": 1,
+        "version": 2,
         "name": "DoramasYT",
         "internalName": "DoramasYTProvider",
         "authors": [
             "municipalidad1998"
         ],
         "description": "Doramas con subtitulos en Espanol y Latino",
-        "fileSize": 33496,
+        "fileSize": 0,
         "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
         "language": "es",
         "tvTypes": [
             "AsianDrama",
             "TvSeries"
         ],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasYTProvider/icon.png",
+        "iconUrl": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main/DoramasYTProvider/icon.png",
+        "apiVersion": 1
+    },
+    {
+        "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasFlixProvider.cs3",
+        "status": 1,
+        "version": 2,
+        "name": "DoramasFlix",
+        "internalName": "DoramasFlixProvider",
+        "authors": [
+            "municipalidad1998"
+        ],
+        "description": "Doramas subtitulados en espanol",
+        "fileSize": 0,
+        "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
+        "language": "es",
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries"
+        ],
+        "iconUrl": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main/DoramasFlixProvider/icon.png",
         "apiVersion": 1
     },
     {
         "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/DoramasiaProvider.cs3",
         "status": 1,
-        "version": 1,
+        "version": 2,
         "name": "Doramasia",
         "internalName": "DoramasiaProvider",
         "authors": [
             "municipalidad1998"
         ],
         "description": "Doramas y series asiaticas en espanol",
-        "fileSize": 16652,
+        "fileSize": 0,
         "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
         "language": "es",
         "tvTypes": [
             "AsianDrama",
             "TvSeries"
         ],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/DoramasiaProvider/icon.png",
+        "iconUrl": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main/DoramasiaProvider/icon.png",
         "apiVersion": 1
     },
     {
         "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/PeliCineHDProvider.cs3",
         "status": 1,
-        "version": 1,
+        "version": 2,
         "name": "PeliCineHD",
         "internalName": "PeliCineHDProvider",
         "authors": [
             "municipalidad1998"
         ],
         "description": "Peliculas y series en HD 1080P Latino",
-        "fileSize": 17472,
+        "fileSize": 0,
         "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
         "language": "es",
         "tvTypes": [
             "Movie",
             "TvSeries"
         ],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/PeliCineHDProvider/icon.png",
+        "iconUrl": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main/PeliCineHDProvider/icon.png",
         "apiVersion": 1
     },
     {
         "url": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/refs/heads/builds/PelisJuanitaProvider.cs3",
         "status": 1,
-        "version": 1,
+        "version": 2,
         "name": "PelisJuanita",
         "internalName": "PelisJuanitaProvider",
         "authors": [
             "municipalidad1998"
         ],
         "description": "Peliculas y series en espanol latino HD",
-        "fileSize": 17398,
+        "fileSize": 0,
         "repositoryUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream",
         "language": "es",
         "tvTypes": [
             "Movie",
             "TvSeries"
         ],
-        "iconUrl": "https://github.com/municipalidad1998/doramasyt-cloudstream/raw/refs/heads/master/PelisJuanitaProvider/icon.png",
+        "iconUrl": "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/main/PelisJuanitaProvider/icon.png",
         "apiVersion": 1
     }
 ]
