@@ -5,7 +5,7 @@ buildscript {
         maven("https://jitpack.io")
     }
     dependencies {
-        classpath("com.github.recloudstream:gradle:-SNAPSHOT")
+        classpath("com.github.recloudstream:gradle:master-SNAPSHOT")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.21")
     }
 }
@@ -18,6 +18,14 @@ allprojects {
     }
 }
 
+subprojects {
+    afterEvaluate {
+        tasks.findByName("make")?.let { makeTask ->
+            rootProject.tasks.findByName("makeAll")?.dependsOn(makeTask)
+        }
+    }
+}
+
 tasks.register("makeAll") {
-    dependsOn(subprojects.mapNotNull { it.tasks.findByName("make") })
+    group = "build"
 }
