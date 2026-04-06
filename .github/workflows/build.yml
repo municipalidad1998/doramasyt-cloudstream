@@ -37,32 +37,60 @@ jobs:
           unzip -q kotlin.zip -d /opt/
           echo "/opt/kotlinc/bin" >> $GITHUB_PATH
 
-      - name: Download Jsoup y JSON
+      - name: Download dependencias
         run: |
           mkdir -p libs
+          
+          # Jsoup y JSON desde Maven
           wget -q "https://repo1.maven.org/maven2/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar" -O libs/jsoup.jar
           wget -q "https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar" -O libs/json.jar
           wget -q "https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.3/kotlinx-coroutines-core-jvm-1.7.3.jar" -O libs/coroutines.jar
-          echo "Dependencias: $(ls -la libs/)"
+          
+          # Intentar obtener CloudStream API real de JitPack (varios formatos)
+          for URL in \
+            "https://jitpack.io/com/github/recloudstream/cloudstream/pre-release-SNAPSHOT/cloudstream-pre-release-SNAPSHOT.jar" \
+            "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar" \
+            "https://jitpack.io/com/github/recloudstream/cloudstream/4.7.0/cloudstream-4.7.0.jar"; do
+            wget -q --timeout=30 "$URL" -O libs/cloudstream-api.jar 2>/dev/null
+            SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+            if [ "$SIZE" -gt "10000" ]; then
+              echo "✅ CloudStream API descargada: $SIZE bytes desde $URL"
+              break
+            fi
+          done
+          
+          # Si no se pudo descargar, usamos los stubs (fallback)
+          CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+          if [ "$CS_SIZE" -lt "10000" ]; then
+            echo "⚠️ Usando stubs locales (JitPack no disponible)"
+          fi
+          
+          echo "Dependencias: $(ls -lh libs/)"
 
       - name: Compilar stubs + providers a .jar
         run: |
           mkdir -p build_output
           CLASSPATH="libs/jsoup.jar:libs/json.jar:libs/coroutines.jar"
 
-          echo "=== Compilando stubs de CloudStream API ==="
-          kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt \
-            -classpath "$CLASSPATH" \
-            -d build_output/cloudstream-stubs.jar \
-            -jvm-target 1.8 -nowarn 2>&1 | tail -5
-          
-          if [ ! -f build_output/cloudstream-stubs.jar ]; then
-            echo "❌ Stubs fallaron"
-            exit 1
+          # Usar CloudStream API real si está disponible
+          CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+          if [ "$CS_SIZE" -gt "10000" ]; then
+            echo "✅ Usando CloudStream API real ($CS_SIZE bytes)"
+            CLASSPATH="libs/cloudstream-api.jar:libs/jsoup.jar:libs/json.jar:libs/coroutines.jar"
+            cp libs/cloudstream-api.jar build_output/cloudstream-stubs.jar
+          else
+            echo "⚠️ Compilando stubs de CloudStream API"
+            kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt \
+              -classpath "$CLASSPATH" \
+              -d build_output/cloudstream-stubs.jar \
+              -jvm-target 1.8 -nowarn 2>&1 | tail -5
+            if [ ! -f build_output/cloudstream-stubs.jar ]; then
+              echo "❌ Stubs fallaron"
+              exit 1
+            fi
+            echo "✅ Stubs compilados"
+            CLASSPATH="libs/jsoup.jar:libs/json.jar:libs/coroutines.jar:build_output/cloudstream-stubs.jar"
           fi
-          echo "✅ Stubs compilados"
-          
-          CLASSPATH="libs/jsoup.jar:libs/json.jar:libs/coroutines.jar:build_output/cloudstream-stubs.jar"
           
           PROVIDERS=(
             "DoramasYTProvider"
@@ -141,3 +169,5 @@ jobs:
           git commit -m "Build $(date +'%Y-%m-%d %H:%M') [$(git log origin/main -1 --pretty=format:'%h')]"
           git push origin builds
           echo "✅ Publicado en rama builds"
+
+# Nota: este bloque no se ejecuta, es solo referencia
