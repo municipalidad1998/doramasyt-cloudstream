@@ -1,14 +1,6 @@
 package com.cncverse
 
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.mainPageOf
-import com.lagradost.cloudstream3.newEpisode
-import com.lagradost.cloudstream3.newHomePageResponse
-import com.lagradost.cloudstream3.newMovieSearchResponse
-import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
@@ -24,13 +16,12 @@ class DoramasYTProvider : MainAPI() {
     override var lang = "es"
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.TvSeries)
 
-    // Placeholders que hay que ignorar
     private val placeholderImages = listOf("anime.png", "capblank.png", "capblank2.png")
 
     override val mainPage = mainPageOf(
-        "$mainUrl/doramas"      to "Recientes",
-        "$mainUrl/emision"      to "En Emision",
-        "$mainUrl/peliculas"    to "Peliculas",
+        "$mainUrl/doramas"           to "Recientes",
+        "$mainUrl/emision"           to "En Emision",
+        "$mainUrl/peliculas"         to "Peliculas",
         "$mainUrl/genero/k-drama"    to "K-Drama",
         "$mainUrl/genero/c-drama"    to "C-Drama",
         "$mainUrl/genero/j-drama"    to "J-Drama",
@@ -42,484 +33,244 @@ class DoramasYTProvider : MainAPI() {
         "$mainUrl/genero/fantasia"   to "Fantasia",
     )
 
-    // ---------------------------------------------------------------
-    // HELPERS DE IMAGEN
-    // ---------------------------------------------------------------
-
-    /** Devuelve true si la URL es una imagen placeholder del sitio */
     private fun String.isPlaceholder(): Boolean =
         placeholderImages.any { this.contains(it) }
 
-    /**
-     * Extrae la URL real de la imagen probando varios atributos data-*
-     * y filtrando los placeholders.
-     */
     private fun Element.realImageUrl(): String? {
-        val img = this.selectFirst("img.lazy, img[data-src], img[data-img], img[data-original], img") ?: return null
-        val candidates = listOf(
+        val img = this.selectFirst("img.lazy, img[data-src], img[data-img], img[data-original], img")
+            ?: return null
+        return listOf(
             img.attr("data-src"),
             img.attr("data-img"),
             img.attr("data-original"),
             img.attr("data-lazy-src"),
             img.attr("src")
-        )
-        return candidates.firstOrNull { it.isNotBlank() && !it.isPlaceholder() }
+        ).firstOrNull { it.isNotBlank() && !it.isPlaceholder() }
     }
-
-    // ---------------------------------------------------------------
-    // toSearchResponse
-    // ---------------------------------------------------------------
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a = this.selectFirst("a") ?: return null
-        val href = fixUrlNull(a.attr("href")) ?: return null
+        val a     = this.selectFirst("a") ?: return null
+        val href  = fixUrlNull(a.attr("href")) ?: return null
         val title = this.selectFirst("h3.titulo_cap, h3.title_cap, h3")
             ?.text()?.trim() ?: return null
-
         val poster = fixUrlNull(this.realImageUrl() ?: "")
-
-        return newMovieSearchResponse(
-            name  = title,
-            url   = href,
-            type  = TvType.AsianDrama
-        ) {
-            this.posterUrl = poster
-        }
+        return newMovieSearchResponse(title, href, TvType.AsianDrama) { posterUrl = poster }
     }
 
-    // ---------------------------------------------------------------
-    // buildUrl
-    // ---------------------------------------------------------------
-
-    private fun buildUrl(baseUrl: String, page: Int): String =
+    private fun buildUrl(baseUrl: String, page: Int) =
         if (page <= 1) baseUrl else "$baseUrl?p=$page"
 
-    // ---------------------------------------------------------------
-    // getMainPage
-    // ---------------------------------------------------------------
-
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = buildUrl(request.data, page)
-        val response = app.get(url)
-        val homeList = response.document
-            .select("li.ficha_efecto, div.ficha_efecto, .col-6, .anime_programing")
+        val doc = app.get(buildUrl(request.data, page)).document
+        val items = doc.select("li.ficha_efecto, div.ficha_efecto, .col-6")
             .mapNotNull { it.toSearchResponse() }
-
-        return newHomePageResponse(
-            listOf(HomePageList(request.name, homeList, isHorizontalImages = false))
-        )
+        return newHomePageResponse(listOf(HomePageList(request.name, items)))
     }
 
-    // ---------------------------------------------------------------
-    // search
-    // ---------------------------------------------------------------
-
     override suspend fun search(query: String): List<SearchResponse>? {
-        // 1) Intentar AJAX (devuelve imagen real en el JSON)
         try {
-            val mainResponse = app.get(mainUrl)
-            val csrfToken = mainResponse.document
+            val csrf = app.get(mainUrl).document
                 .selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
-
-            val ajaxResponse = app.post(
+            val ajax = app.post(
                 "$mainUrl/buscar_ajax",
-                data    = mapOf("_token" to csrfToken, "q" to query),
-                headers = mapOf(
-                    "Referer"           to mainUrl,
-                    "X-Requested-With"  to "XMLHttpRequest"
-                )
+                data    = mapOf("_token" to csrf, "q" to query),
+                headers = mapOf("Referer" to mainUrl, "X-Requested-With" to "XMLHttpRequest")
             )
-
-            val json    = org.json.JSONArray(ajaxResponse.text)
+            val arr = org.json.JSONArray(ajax.text)
             val results = mutableListOf<SearchResponse>()
-
-            for (i in 0 until json.length()) {
-                val item  = json.getJSONObject(i)
-                val title = item.getString("nombre")
-                val href  = item.getString("url")
-                // El AJAX ya devuelve la URL real de la imagen
-                val imagen = item.optString("imagen", "").takeIf { !it.isPlaceholder() }
-
-                results.add(
-                    newMovieSearchResponse(
-                        name = title,
-                        url  = fixUrl(href),
-                        type = TvType.AsianDrama
-                    ) {
-                        this.posterUrl = imagen?.let { fixUrl(it) }
-                    }
-                )
+            for (i in 0 until arr.length()) {
+                val obj   = arr.getJSONObject(i)
+                val title = obj.getString("nombre")
+                val url2  = fixUrl(obj.getString("url"))
+                val img   = obj.optString("imagen", "").let {
+                    if (it.isNotBlank() && !it.isPlaceholder()) fixUrl(it) else null
+                }
+                results.add(newMovieSearchResponse(title, url2, TvType.AsianDrama) { posterUrl = img })
             }
             if (results.isNotEmpty()) return results
-        } catch (e: Exception) { /* fallback al HTML */ }
+        } catch (_: Exception) {}
 
-        // 2) Fallback: búsqueda HTML
-        val url      = "$mainUrl/buscar?q=${query}"
-        val response = app.get(url, headers = mapOf("Referer" to mainUrl))
-        return response.document
+        return app.get("$mainUrl/buscar?q=$query").document
             .select("li.ficha_efecto, div.ficha_efecto")
             .mapNotNull { it.toSearchResponse() }
     }
 
-    // ---------------------------------------------------------------
-    // load  (página de detalle del dorama)
-    // ---------------------------------------------------------------
-
     override suspend fun load(url: String): LoadResponse {
-        val response = app.get(url)
-        val document = response.document
+        val doc   = app.get(url).document
+        val title = doc.selectFirst("h1")?.text()?.trim() ?: "Unknown"
 
-        val title = document.selectFirst("h1")?.text()?.trim() ?: "Unknown"
+        // POSTER: OG image > data-src > src (sin placeholders)
+        val ogImage = doc.selectFirst("meta[property='og:image']")
+            ?.attr("content")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
 
-        // --- POSTER: prioridad OG > data-src > src (sin placeholders) ---
-        val ogImage = document.selectFirst("meta[property='og:image']")?.attr("content")
-            ?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
-
-        val imgElement = document.selectFirst(
-            "img.lazy, img[data-src], img[data-img], img[data-original], .card-img-top, img"
-        )
+        val imgEl = doc.selectFirst("img.lazy, img[data-src], img[data-img], img[data-original], img")
         val rawPoster = ogImage
-            ?: imgElement?.attr("data-src")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
-            ?: imgElement?.attr("data-img")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
-            ?: imgElement?.attr("data-original")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
-            ?: imgElement?.attr("src")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
-
+            ?: imgEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
+            ?: imgEl?.attr("data-img")?.takeIf  { it.isNotBlank() && !it.isPlaceholder() }
+            ?: imgEl?.attr("data-original")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
+            ?: imgEl?.attr("src")?.takeIf { it.isNotBlank() && !it.isPlaceholder() }
         val poster = fixUrlNull(rawPoster ?: "")
 
-        // --- BACKGROUND: preferir og:image o twitter:image ---
-        val bgPoster = document.selectFirst("meta[property='og:image'], meta[name='twitter:image']")
-            ?.attr("content")?.takeIf { !it.isPlaceholder() }
+        // BACKGROUND: buscar imagen wide/landscape en meta og o twitter
+        val bgPoster = listOf(
+            doc.selectFirst("meta[property='og:image']")?.attr("content"),
+            doc.selectFirst("meta[name='twitter:image']")?.attr("content"),
+            doc.selectFirst("meta[property='og:image:secure_url']")?.attr("content"),
+        ).firstOrNull { !it.isNullOrBlank() && !it.isPlaceholder() }
             ?.let { fixUrl(it) } ?: poster
 
-        val plot = document.selectFirst(
-            ".sinopsis, .description, .card-body p, p.text-muted"
-        )?.text()?.trim() ?: ""
+        val plot = doc.selectFirst(".sinopsis, .description, .card-body p, p.text-muted")
+            ?.text()?.trim() ?: ""
+        val year = Regex("""(\d{4})""").find(
+            doc.selectFirst("span.text-muted, .badge")?.text() ?: ""
+        )?.groupValues?.get(1)?.toIntOrNull()
+        val tags = doc.select("a[href*='/genero/']").map { it.text().trim() }
 
-        val yearText = document.selectFirst("span.text-muted, .badge")?.text()?.trim()
-            ?.let { Regex("""(\d{4})""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        val episodes  = mutableListOf<Episode>()
+        val ajaxSec   = doc.selectFirst("section.caplist")
+        val ajaxUrl   = ajaxSec?.attr("data-ajax")
+        val csrf      = doc.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
+        var ajaxOk    = false
 
-        val tags = document.select("a[href*='/genero/']").map { it.text().trim() }
-
-        // ---------------------------------------------------------------
-        // EPISODIOS
-        // ---------------------------------------------------------------
-        val episodes   = mutableListOf<Episode>()
-        val ajaxSection = document.selectFirst("section.caplist")
-        val ajaxUrl     = ajaxSection?.attr("data-ajax")
-        val csrfToken   = document.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
-        var ajaxSuccess = false
-
-        if (ajaxUrl != null && ajaxUrl.isNotBlank() && csrfToken.isNotBlank()) {
+        if (!ajaxUrl.isNullOrBlank() && csrf.isNotBlank()) {
             try {
-                val ajaxResponse = app.post(
-                    ajaxUrl,
-                    data    = mapOf("_token" to csrfToken),
-                    headers = mapOf(
-                        "Referer"           to url,
-                        "X-Requested-With"  to "XMLHttpRequest",
-                        "Accept"            to "application/json"
-                    )
+                val json = org.json.JSONObject(
+                    app.post(ajaxUrl, data = mapOf("_token" to csrf),
+                        headers = mapOf("Referer" to url, "X-Requested-With" to "XMLHttpRequest",
+                            "Accept" to "application/json")).text
                 )
-                val json     = org.json.JSONObject(ajaxResponse.text)
-                val epsArray = json.optJSONArray("eps")
-
-                if (epsArray != null && epsArray.length() > 0) {
-                    ajaxSuccess = true
-                    for (i in 0 until epsArray.length()) {
-                        val ep      = epsArray.getJSONObject(i)
-                        val epHref  = fixUrlNull(ep.optString("url")) ?: continue
-                        val epNumber = ep.optInt("episodio", i + 1)
-                        episodes.add(newEpisode(epHref) {
-                            this.name    = "Episodio $epNumber"
-                            this.episode = epNumber
-                        })
+                val eps = json.optJSONArray("eps")
+                if (eps != null && eps.length() > 0) {
+                    ajaxOk = true
+                    for (i in 0 until eps.length()) {
+                        val ep = eps.getJSONObject(i)
+                        val epHref = fixUrlNull(ep.optString("url")) ?: continue
+                        val num = ep.optInt("episodio", i + 1)
+                        episodes.add(newEpisode(epHref) { name = "Episodio $num"; episode = num })
                     }
-
                     val paginateUrl = json.optString("paginate_url", "")
-                    val perpage     = json.optInt("perpage", 50)
-                    val totalEps    = json.optInt("total", epsArray.length())
-
-                    if (paginateUrl.isNotBlank() && totalEps > perpage) {
-                        val totalPages = (totalEps + perpage - 1) / perpage
-                        for (p in 2..totalPages) {
+                    val perpage = json.optInt("perpage", 50)
+                    val total   = json.optInt("total", eps.length())
+                    if (paginateUrl.isNotBlank() && total > perpage) {
+                        for (p in 2..(total + perpage - 1) / perpage) {
                             try {
-                                val pageResponse = app.post(
-                                    paginateUrl,
-                                    data    = mapOf("_token" to csrfToken, "p" to p.toString()),
-                                    headers = mapOf(
-                                        "Referer"           to url,
-                                        "X-Requested-With"  to "XMLHttpRequest",
-                                        "Accept"            to "application/json"
-                                    )
+                                val pJson = org.json.JSONObject(
+                                    app.post(paginateUrl,
+                                        data = mapOf("_token" to csrf, "p" to p.toString()),
+                                        headers = mapOf("Referer" to url, "X-Requested-With" to "XMLHttpRequest",
+                                            "Accept" to "application/json")).text
                                 )
-                                val pageJson  = org.json.JSONObject(pageResponse.text)
-                                val capsArray = pageJson.optJSONArray("caps")
-                                if (capsArray != null) {
-                                    for (i in 0 until capsArray.length()) {
-                                        val ep      = capsArray.getJSONObject(i)
-                                        val epHref  = fixUrlNull(ep.optString("url")) ?: continue
-                                        val epNumber = ep.optInt("episodio", i + 1 + (p - 1) * perpage)
-                                        episodes.add(newEpisode(epHref) {
-                                            this.name    = "Episodio $epNumber"
-                                            this.episode = epNumber
-                                        })
+                                pJson.optJSONArray("caps")?.let { caps ->
+                                    for (i in 0 until caps.length()) {
+                                        val ep = caps.getJSONObject(i)
+                                        val epHref = fixUrlNull(ep.optString("url")) ?: continue
+                                        val num = ep.optInt("episodio", i + 1 + (p - 1) * perpage)
+                                        episodes.add(newEpisode(epHref) { name = "Episodio $num"; episode = num })
                                     }
                                 }
-                            } catch (e: Exception) { break }
+                            } catch (_: Exception) { break }
                         }
                     }
                 }
-            } catch (e: Exception) { }
+            } catch (_: Exception) {}
         }
 
-        // Fallback: seguir links de episodios
-        if (!ajaxSuccess || episodes.isEmpty()) {
-            val verAhoraLink = document.selectFirst("a[href*='/ver/']")
-            if (verAhoraLink != null) {
-                var currentEpUrl  = fixUrlNull(verAhoraLink.attr("href"))
-                var epNumber      = 1
-                val visitedUrls   = mutableSetOf<String>()
-
-                while (currentEpUrl != null && epNumber <= 200 && !visitedUrls.contains(currentEpUrl)) {
-                    visitedUrls.add(currentEpUrl)
-                    try {
-                        val epDoc = app.get(currentEpUrl).document
-                        episodes.add(newEpisode(currentEpUrl) {
-                            this.name    = "Episodio $epNumber"
-                            this.episode = epNumber
-                        })
-                        val siguiente = epDoc.select("a[href*='/ver/']")
-                            .firstOrNull { it.text().contains("Siguiente", ignoreCase = true) }
-                        val nextUrl = siguiente?.let { fixUrlNull(it.attr("href")) }
-                        currentEpUrl = if (nextUrl != null && nextUrl != currentEpUrl) {
-                            epNumber++; nextUrl
-                        } else null
-                    } catch (e: Exception) { break }
-                }
+        if (!ajaxOk || episodes.isEmpty()) {
+            var current  = fixUrlNull(doc.selectFirst("a[href*='/ver/']")?.attr("href"))
+            var epNum    = 1
+            val visited  = mutableSetOf<String>()
+            while (current != null && epNum <= 200 && !visited.contains(current)) {
+                visited.add(current)
+                try {
+                    val epDoc = app.get(current).document
+                    episodes.add(newEpisode(current) { name = "Episodio $epNum"; episode = epNum })
+                    val next = epDoc.select("a[href*='/ver/']")
+                        .firstOrNull { it.text().contains("Siguiente", ignoreCase = true) }
+                    val nextUrl = next?.let { fixUrlNull(it.attr("href")) }
+                    current = if (nextUrl != null && nextUrl != current) { epNum++; nextUrl } else null
+                } catch (_: Exception) { break }
             }
         }
 
         val type = if (episodes.size > 1) TvType.TvSeries else TvType.AsianDrama
-
         return newTvSeriesLoadResponse(title, url, type, episodes) {
-            this.posterUrl           = poster
-            this.backgroundPosterUrl = bgPoster
-            this.plot                = plot
-            this.year                = yearText
-            this.tags                = tags
+            posterUrl = poster; backgroundPosterUrl = bgPoster
+            plot = plot; year = year; tags = tags
         }
     }
 
-    // ---------------------------------------------------------------
-    // loadLinks
-    // ---------------------------------------------------------------
-
     override suspend fun loadLinks(
-        data: String,
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
+        data: String, isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
-        app.get(mainUrl)  // Establecer sesión
-        val response  = app.get(data)
-        val document  = response.document
-
-        var resourceToken = ""
-        document.select("script").forEach { script ->
-            val scriptData = script.data()
-            val match = Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(scriptData)
-            if (match != null) resourceToken = match.groupValues[1]
+        app.get(mainUrl)
+        val doc = app.get(data).document
+        var token = ""
+        doc.select("script").forEach { s ->
+            Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())
+                ?.let { token = it.groupValues[1] }
         }
-
-        val playerKey = document.selectFirst(".player")?.attr("data-key")
-            ?: "$mainUrl/reproductor?video="
-
-        document.select("button.play-video[data-player]").forEach { btn ->
-            val serverName    = btn.text().trim()
-            val encryptedData = btn.attr("data-player")
-            if (encryptedData.isNotBlank()) {
-                val playerUrl = "${playerKey}${encryptedData}" +
-                    "&player=${java.net.URLEncoder.encode(serverName, "UTF-8")}" +
-                    "&token=$resourceToken"
-                extractFromReproductor(playerUrl, serverName, callback)
+        val playerKey = doc.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
+        doc.select("button.play-video[data-player]").forEach { btn ->
+            val enc  = btn.attr("data-player")
+            val name2 = btn.text().trim()
+            if (enc.isNotBlank()) {
+                val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(name2,"UTF-8")}&token=$token"
+                extractReproductor(pUrl, name2, callback)
             }
         }
-
-        // Links directos (Gofile, Pixeldrain, Mega)
-        document.select(
-            "a.btn[href*='gofile.io'], a.btn[href*='pixeldrain.com'], " +
-            "a.btn[href*='mega.nz'], a.btn[href*='mega.co.nz']"
-        ).forEach { link ->
-            val href       = link.attr("href").trim()
-            val serverName = link.text().trim()
-            if (href.isNotBlank()) {
-                callback.invoke(newExtractorLink(
-                    source = "$name - $serverName",
-                    name   = "$name - $serverName",
-                    url    = href,
-                    type   = ExtractorLinkType.VIDEO
-                ) {
-                    this.referer = mainUrl
-                    this.quality = Qualities.Unknown.value
-                })
+        doc.select("a.btn[href*='gofile.io'],a.btn[href*='pixeldrain.com'],a.btn[href*='mega.nz']")
+            .forEach { link ->
+                val href = link.attr("href").trim()
+                if (href.isNotBlank()) callback.invoke(
+                    newExtractorLink("$name - ${link.text().trim()}", "$name - ${link.text().trim()}",
+                        href, ExtractorLinkType.VIDEO) { referer = mainUrl; quality = Qualities.Unknown.value }
+                )
             }
-        }
         return true
     }
 
-    // ---------------------------------------------------------------
-    // extractFromReproductor
-    // ---------------------------------------------------------------
-
-    private suspend fun extractFromReproductor(
-        url: String,
-        serverName: String,
-        callback: (ExtractorLink) -> Unit
-    ) {
+    private suspend fun extractReproductor(url: String, sName: String, cb: (ExtractorLink) -> Unit) {
         try {
-            val document = app.get(url, headers = mapOf(
-                "Referer"    to mainUrl,
-                "Accept"     to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )).document
-
-            document.select("iframe").forEach { iframe ->
+            val doc = app.get(url, headers = mapOf("Referer" to mainUrl,
+                "User-Agent" to "Mozilla/5.0")).document
+            doc.select("iframe").forEach { iframe ->
                 val src = iframe.attr("src").trim()
-                if (src.isNotBlank() && src.startsWith("http"))
-                    extractVideoLink(src, serverName, callback)
+                if (src.startsWith("http")) extractVideoLink(src, sName, cb)
             }
-
-            document.select("script").forEach { script ->
-                val scriptData = script.data()
-                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8|mkv)[^"']*)["']""")
-                    .findAll(scriptData).forEach { match ->
-                        val videoUrl = match.groupValues[1]
-                        callback.invoke(newExtractorLink(
-                            source = "$name - $serverName",
-                            name   = "$name - $serverName",
-                            url    = videoUrl,
-                            type   = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8
-                                     else ExtractorLinkType.VIDEO
-                        ) {
-                            this.referer = mainUrl
-                            this.quality = Qualities.Unknown.value
+            doc.select("script").forEach { s ->
+                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""").findAll(s.data())
+                    .forEach { m ->
+                        val v = m.groupValues[1]
+                        cb.invoke(newExtractorLink("$name - $sName", "$name - $sName", v,
+                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                            referer = mainUrl; quality = Qualities.Unknown.value
                         })
                     }
             }
-        } catch (e: Exception) { }
+        } catch (_: Exception) {}
     }
 
-    // ---------------------------------------------------------------
-    // extractVideoLink
-    // ---------------------------------------------------------------
-
-    private suspend fun extractVideoLink(
-        url: String,
-        serverName: String,
-        callback: (ExtractorLink) -> Unit
-    ) {
+    private suspend fun extractVideoLink(url: String, sName: String, cb: (ExtractorLink) -> Unit) {
         if (url.isBlank()) return
-        val decodedUrl = try { URLDecoder.decode(url, "UTF-8") } catch (e: Exception) { url }
-
-        when {
-            decodedUrl.contains("mega.nz") || decodedUrl.contains("mega.co.nz") -> {
-                callback.invoke(newExtractorLink("$name - Mega", "$name - Mega", decodedUrl, ExtractorLinkType.VIDEO) {
-                    this.referer = "https://mega.nz"; this.quality = Qualities.Unknown.value
-                })
-            }
-            decodedUrl.contains("filemoon") || decodedUrl.contains("filemoon.sx") -> {
-                val scriptData = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
-                    .document.select("script").joinToString("\n") { it.data() }
-                val match = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
-                    ?: Regex("""sources\s*=\s*\[\s*\{\s*file:\s*["']([^"']+)["']""").find(scriptData)
-                if (match != null) {
-                    val v = match.groupValues[1]
-                    callback.invoke(newExtractorLink("$name - Filemoon", "$name - Filemoon", v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        this.referer = "https://filemoon.sx"; this.quality = Qualities.Unknown.value
-                    })
-                }
-            }
-            decodedUrl.contains("dood") || decodedUrl.contains("doodstream") -> {
-                val scriptData = app.get(decodedUrl).document.select("script").joinToString("\n") { it.data() }
-                val dsMatch = Regex("""/pass_md5/([^"']*)""").find(scriptData)
-                if (dsMatch != null) {
-                    val token = app.get("https://doodstream.com/pass_md5/${dsMatch.groupValues[1]}").text
-                    if (token.isNotBlank()) {
-                        callback.invoke(newExtractorLink("$name - Doodstream", "$name - Doodstream",
-                            "$token${generateRandomString()}", ExtractorLinkType.VIDEO) {
-                            this.referer  = "https://doodstream.com/"
-                            this.quality  = Qualities.Unknown.value
-                            this.headers  = mapOf("Referer" to "https://doodstream.com/")
+        val decoded = try { URLDecoder.decode(url, "UTF-8") } catch (_: Exception) { url }
+        try {
+            val doc = app.get(decoded, headers = mapOf("Referer" to mainUrl)).document
+            doc.select("script").forEach { s ->
+                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""").findAll(s.data())
+                    .forEach { m ->
+                        val v = m.groupValues[1]
+                        cb.invoke(newExtractorLink("$name - $sName", "$name - $sName", v,
+                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                            referer = decoded; quality = Qualities.Unknown.value
                         })
                     }
-                }
             }
-            decodedUrl.contains("streamtape") -> {
-                val scriptData = app.get(decodedUrl).document.select("script").joinToString("\n") { it.data() }
-                val match = Regex("""innerHTML\s*=\s*["']([^"']+)["']""").find(scriptData)
-                if (match != null) {
-                    callback.invoke(newExtractorLink("$name - Streamtape", "$name - Streamtape",
-                        match.groupValues[1], ExtractorLinkType.VIDEO) {
-                        this.referer = "https://streamtape.com"; this.quality = Qualities.Unknown.value
-                    })
-                }
+            doc.select("iframe[src]").forEach { iframe ->
+                val src = iframe.attr("src").trim()
+                if (src.startsWith("http") && src != decoded) extractVideoLink(src, sName, cb)
             }
-            decodedUrl.contains("voe") || decodedUrl.contains("voe.sx") -> {
-                val scriptData = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
-                    .document.select("script").joinToString("\n") { it.data() }
-                val match = Regex("""hls":\s*["']([^"']+)["']""").find(scriptData)
-                    ?: Regex("""sources:\s*\[\s*\{\s*src:\s*["']([^"']+)["']""").find(scriptData)
-                if (match != null) {
-                    val v = match.groupValues[1]
-                    callback.invoke(newExtractorLink("$name - Voe", "$name - Voe", v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        this.referer = "https://voe.sx"; this.quality = Qualities.Unknown.value
-                    })
-                }
-            }
-            decodedUrl.contains("lulu") || decodedUrl.contains("lulustream") -> {
-                val scriptData = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
-                    .document.select("script").joinToString("\n") { it.data() }
-                val match = Regex("""file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
-                if (match != null) {
-                    val v = match.groupValues[1]
-                    callback.invoke(newExtractorLink("$name - Lulu", "$name - Lulu", v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        this.referer = "https://lulustream.com"; this.quality = Qualities.Unknown.value
-                    })
-                }
-            }
-            decodedUrl.contains("mxdrop") -> {
-                val scriptData = app.get(decodedUrl, headers = mapOf("Referer" to mainUrl))
-                    .document.select("script").joinToString("\n") { it.data() }
-                val match = Regex("""url:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']""").find(scriptData)
-                if (match != null) {
-                    val v = match.groupValues[1]
-                    callback.invoke(newExtractorLink("$name - MxDrop", "$name - MxDrop", v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        this.referer = "https://mxdrop.net"; this.quality = Qualities.Unknown.value
-                    })
-                }
-            }
-            decodedUrl.contains("gofile.io") -> {
-                callback.invoke(newExtractorLink("$name - Gofile", "$name - Gofile", decodedUrl, ExtractorLinkType.VIDEO) {
-                    this.referer = "https://gofile.io"; this.quality = Qualities.Unknown.value
-                })
-            }
-            decodedUrl.contains("pixeldrain") -> {
-                callback.invoke(newExtractorLink("$name - Pixeldrain", "$name - Pixeldrain", decodedUrl, ExtractorLinkType.VIDEO) {
-                    this.referer = "https://pixeldrain.com"; this.quality = Qualities.Unknown.value
-                })
-            }
-            decodedUrl.startsWith("http") -> {
-                callback.invoke(newExtractorLink("$name - $serverName", "$name - $serverName", decodedUrl,
-                    if (decodedUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                    this.referer = mainUrl; this.quality = Qualities.Unknown.value
-                })
-            }
-        }
+        } catch (_: Exception) {}
     }
 
     private fun generateRandomString(length: Int = 10): String {

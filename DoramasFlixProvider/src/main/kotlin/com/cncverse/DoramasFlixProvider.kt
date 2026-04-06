@@ -15,106 +15,109 @@ class DoramasFlixProvider : MainAPI() {
     override var lang     = "es"
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.TvSeries, TvType.Movie)
 
+    // El homepage carga secciones en HTML; catálogo/genero son JS-rendered
+    // Usamos letras y búsqueda para acceso real al contenido
     override val mainPage = mainPageOf(
-        "$mainUrl/doramas-online"    to "Doramas",
-        "$mainUrl/peliculas-online"  to "Películas",
-        "$mainUrl/variedades-online" to "Variedades",
-        "$mainUrl/generos/romance"   to "Romance",
-        "$mainUrl/generos/comedia"   to "Comedia",
-        "$mainUrl/generos/drama"     to "Drama",
-        "$mainUrl/generos/accion"    to "Acción",
-        "$mainUrl/generos/thriller"  to "Thriller",
+        "$mainUrl/letras/a" to "Series A",
+        "$mainUrl/letras/b" to "Series B",
+        "$mainUrl/letras/c" to "Series C",
+        "$mainUrl/letras/d" to "Series D",
+        "$mainUrl/letras/e" to "Series E",
+        "$mainUrl/letras/s" to "Series S",
+        "$mainUrl/letras/t" to "Series T",
+        "$mainUrl/letras/m" to "Series M",
+        "$mainUrl/letras/l" to "Series L",
+        "$mainUrl/letras/k" to "Series K",
     )
 
-    // Imagen real: segunda img (después del GIF placeholder) o la que apunta a TMDB
-    private fun Element.tmdbPoster(): String? {
-        return this.select("img[src*='image.tmdb.org'], img[src*='tmdb.org']")
-            .firstOrNull()?.attr("src")?.takeIf { it.isNotBlank() }
-    }
+    // Imagen real: la segunda img (después del GIF placeholder) apunta a TMDB
+    private fun Element.tmdbPoster(): String? =
+        this.selectFirst("img[src*='image.tmdb.org'], img[src*='tmdb.org']")
+            ?.attr("src")?.takeIf { it.isNotBlank() }
+        ?: this.select("img").lastOrNull { 
+            !it.attr("src").startsWith("data:") && it.attr("src").isNotBlank()
+        }?.attr("src")
 
     private fun Element.toSearchResponse(): SearchResponse? {
-        val a     = this.selectFirst("a[href]") ?: return null
-        val href  = fixUrlNull(a.attr("href")) ?: return null
-        val title = this.selectFirst("h2, h3, .title")?.text()?.trim()
-            ?: a.attr("title").takeIf { it.isNotBlank() }
+        val a     = this.selectFirst("a[href*='/doramas-online/'], a[href*='/peliculas-online/'], a[href]")
             ?: return null
-        val poster = this.tmdbPoster() ?: fixUrlNull(
-            this.selectFirst("img:not([src^='data:'])")?.attr("src") ?: ""
-        )
+        val href  = fixUrlNull(a.attr("href")) ?: return null
+        if (!href.contains(mainUrl) && !href.startsWith("/")) return null
+        val title = this.selectFirst("h2, h3, .title, p")?.text()?.trim()
+            ?: a.attr("title").trim().takeIf { it.isNotBlank() }
+            ?: return null
+        val poster = this.tmdbPoster()
         val isMovie = href.contains("/peliculas-online/")
-        return newMovieSearchResponse(title, href, if (isMovie) TvType.Movie else TvType.AsianDrama) {
-            this.posterUrl = poster
+        return newMovieSearchResponse(title, fixUrl(href), 
+            if (isMovie) TvType.Movie else TvType.AsianDrama) {
+            posterUrl = poster
         }
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page <= 1) request.data else "${request.data}?page=$page"
         val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
-        val items = doc.select("ul > li, .list-item, .anime-item, article")
+        // Las páginas /letras/X tienen lista de doramas en HTML
+        val items = doc.select("li, .anime-card, .serie-card, article, .item")
             .mapNotNull { it.toSearchResponse() }
         return newHomePageResponse(listOf(HomePageList(request.name, items)))
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
-        // Intentar búsqueda via AJAX
-        try {
-            val doc = app.get(mainUrl).document
-            val csrf = doc.selectFirst("meta[name=csrf-token]")?.attr("content") ?: ""
-            val ajax = app.post(
-                "$mainUrl/buscar_ajax",
-                data = mapOf("_token" to csrf, "q" to query),
-                headers = mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to mainUrl)
-            )
-            val arr = org.json.JSONArray(ajax.text)
-            val results = mutableListOf<SearchResponse>()
-            for (i in 0 until arr.length()) {
-                val obj   = arr.getJSONObject(i)
-                val title = obj.optString("nombre").takeIf { it.isNotBlank() } ?: continue
-                val url2  = fixUrl(obj.optString("url"))
-                val img   = obj.optString("imagen").let { if (it.isNotBlank()) fixUrl(it) else null }
-                results.add(newMovieSearchResponse(title, url2, TvType.AsianDrama) { posterUrl = img })
-            }
-            if (results.isNotEmpty()) return results
-        } catch (_: Exception) {}
+        // Búsqueda directa en la página de resultados
+        val searchUrl = "$mainUrl/buscar?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        val doc = app.get(searchUrl, headers = mapOf("Referer" to mainUrl)).document
 
-        // Fallback: página de búsqueda HTML
-        val doc = app.get("$mainUrl/buscar?q=$query").document
-        return doc.select("ul > li, .list-item, article").mapNotNull { it.toSearchResponse() }
+        // Intentar selectores de resultados
+        val results = doc.select("li, .anime-card, article, .search-item, .item")
+            .mapNotNull { it.toSearchResponse() }
+        if (results.isNotEmpty()) return results
+
+        // Alternativa: buscar en el HTML del homepage por título
+        val homeDoc = app.get(mainUrl).document
+        return homeDoc.select("li").filter {
+            it.text().contains(query, ignoreCase = true)
+        }.mapNotNull { it.toSearchResponse() }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val doc   = app.get(url).document
+        val doc   = app.get(url, headers = mapOf("Referer" to mainUrl)).document
         val title = doc.selectFirst("h1, h2.title")?.text()?.trim() ?: "Sin título"
 
-        // Poster: OG > TMDB directo
-        val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")?.takeIf { it.isNotBlank() }
+        // Poster: OG meta > TMDB img directo
+        val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
+            ?.takeIf { it.isNotBlank() }
             ?: doc.selectFirst("img[src*='image.tmdb.org']")?.attr("src")
-            ?: doc.selectFirst("img:not([src^='data:'])")?.attr("src")
+            ?: doc.select("img").lastOrNull { 
+                !it.attr("src").startsWith("data:") && it.attr("src").isNotBlank() 
+            }?.attr("src")
 
-        val plot = doc.selectFirst(".sinopsis, .description, .plot, p.desc")?.text()?.trim() ?: ""
+        val bgPoster = doc.selectFirst("meta[property='og:image']")?.attr("content")
+            ?.takeIf { it.isNotBlank() } ?: poster
+
+        val plot = doc.selectFirst(".sinopsis, .description, p")?.text()?.trim() ?: ""
         val tags = doc.select("a[href*='/generos/']").map { it.text().trim() }
         val year = Regex("""(\d{4})""").find(
-            doc.selectFirst(".year, .fecha, span.anio, .info")?.text() ?: ""
+            doc.selectFirst(".year, .fecha, .info")?.text() ?: doc.title()
         )?.groupValues?.get(1)?.toIntOrNull()
 
         val episodes = mutableListOf<Episode>()
-        // Intentar lista de episodios desde la página
-        doc.select("a[href*='/ver/'], a[href*='/episodio'], a.episode-link").forEach { ep ->
+        // Buscar episodios con varios selectores
+        val epLinks = doc.select("a[href*='/ver/'], a.episode, a.ep-link, .seasons a[href]")
+        epLinks.forEach { ep ->
             val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-            val epNum  = Regex("""(\d+)""").find(ep.text())?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
-            episodes.add(newEpisode(epHref) { name = "Episodio $epNum"; episode = epNum })
+            val num = Regex("""(\d+)""").find(ep.text() + epHref)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
+            episodes.add(newEpisode(epHref) { 
+                name = ep.text().trim().ifBlank { "Episodio $num" }; episode = num 
+            })
         }
-        if (episodes.isEmpty()) {
-            doc.select("a.episode, a[href*='episodio-'], .seasons a").forEach { ep ->
-                val epHref = fixUrlNull(ep.attr("href")) ?: return@forEach
-                val epNum  = Regex("""episodio[- _]?(\d+)""", RegexOption.IGNORE_CASE)
-                    .find(epHref)?.groupValues?.get(1)?.toIntOrNull() ?: (episodes.size + 1)
-                episodes.add(newEpisode(epHref) { name = "Episodio $epNum"; episode = epNum })
-            }
-        }
-        val type = if (url.contains("/peliculas-online/")) TvType.Movie else TvType.AsianDrama
+
+        val isMovie = url.contains("/peliculas-online/")
+        val type = if (isMovie) TvType.Movie else if (episodes.size > 1) TvType.TvSeries else TvType.AsianDrama
         return newTvSeriesLoadResponse(title, url, type, episodes) {
-            posterUrl = poster; plot = plot; tags = tags; year = year
+            posterUrl = poster; backgroundPosterUrl = bgPoster
+            plot = plot; year = year; tags = tags
         }
     }
 
@@ -123,9 +126,10 @@ class DoramasFlixProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
         val doc = app.get(data, headers = mapOf("Referer" to mainUrl)).document
-        doc.select("iframe[src]").forEach { iframe ->
-            val src = iframe.attr("src").trim()
-            if (src.startsWith("http")) loadEmbedLink(src, callback)
+        doc.select("iframe[src], iframe[data-src]").forEach { iframe ->
+            val src = (iframe.attr("src").takeIf { it.isNotBlank() }
+                ?: iframe.attr("data-src")).trim()
+            if (src.startsWith("http")) extractEmbed(src, callback)
         }
         doc.select("source[src], video[src]").forEach { v ->
             val src = v.attr("src").trim()
@@ -133,27 +137,27 @@ class DoramasFlixProvider : MainAPI() {
                 newExtractorLink(name, name, src,
                     if (src.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                     referer = mainUrl; quality = Qualities.Unknown.value
-                }
-            )
+                })
         }
         return true
     }
 
-    private suspend fun loadEmbedLink(url: String, callback: (ExtractorLink) -> Unit) {
+    private suspend fun extractEmbed(url: String, cb: (ExtractorLink) -> Unit) {
         try {
             val doc = app.get(url, headers = mapOf("Referer" to mainUrl)).document
             doc.select("script").forEach { s ->
-                Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data()).forEach {
-                    val v = it.groupValues[1]
-                    callback.invoke(newExtractorLink(name, name, v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        referer = url; quality = Qualities.Unknown.value
-                    })
-                }
+                Regex("""["'](https?://[^"']+\.(?:m3u8|mp4)[^"']*)["']""").findAll(s.data())
+                    .forEach { m ->
+                        val v = m.groupValues[1]
+                        cb.invoke(newExtractorLink(name, name, v,
+                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                            referer = url; quality = Qualities.Unknown.value
+                        })
+                    }
             }
             doc.select("iframe[src]").forEach { iframe ->
                 val src = iframe.attr("src").trim()
-                if (src.startsWith("http") && src != url) loadEmbedLink(src, callback)
+                if (src.startsWith("http") && src != url) extractEmbed(src, cb)
             }
         } catch (_: Exception) {}
     }
