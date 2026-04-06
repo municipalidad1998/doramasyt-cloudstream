@@ -30,67 +30,89 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle 7.6
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '7.6'
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
-          restore-keys: ${{ runner.os }}-gradle-
-
-      - name: Build con info detallado
+      - name: Install Kotlin compiler
         run: |
-          gradle :DoramasYTProvider:make --info 2>&1 | tail -50
+          KOTLIN_VERSION="1.9.21"
+          wget -q "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" -O kotlin.zip
+          unzip -q kotlin.zip -d /opt/
+          echo "/opt/kotlinc/bin" >> $GITHUB_PATH
+          echo "✅ kotlinc instalado"
 
-      - name: Debug - ver TODOS los archivos creados
+      - name: Download dependencias (CloudStream API + Jsoup + JSON)
         run: |
-          echo "=== Archivos .cs3 ==="
-          find / -name "*.cs3" 2>/dev/null | grep -v proc | grep -v sys || true
-          echo ""
-          echo "=== Archivos en build/ de cada módulo ==="
-          for m in DoramasYTProvider DoramasFlixProvider DoramasiaProvider PeliCineHDProvider PelisJuanitaProvider; do
-            echo "--- $m/build/ ---"
-            find "$m/build" -type f 2>/dev/null | head -20 || echo "(vacío)"
+          mkdir -p libs
+          
+          # CloudStream API stub para compilación
+          wget -q "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar" \
+            -O libs/cloudstream-api.jar 2>/dev/null || \
+          wget -q "https://jitpack.io/com/github/recloudstream/cloudstream/pre-release-SNAPSHOT/cloudstream-pre-release-SNAPSHOT.jar" \
+            -O libs/cloudstream-api.jar 2>/dev/null || true
+          
+          # Jsoup para scraping HTML
+          wget -q "https://repo1.maven.org/maven2/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar" -O libs/jsoup.jar
+          
+          # org.json para JSON parsing
+          wget -q "https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar" -O libs/json.jar
+          
+          echo "=== Dependencias descargadas ==="
+          ls -lh libs/
+
+      - name: Compilar cada provider a .jar
+        run: |
+          mkdir -p build_output
+          
+          CLASSPATH="libs/cloudstream-api.jar:libs/jsoup.jar:libs/json.jar"
+          
+          PROVIDERS=(
+            "DoramasYTProvider"
+            "DoramasFlixProvider"
+            "DoramasiaProvider"
+            "PeliCineHDProvider"
+            "PelisJuanitaProvider"
+          )
+          
+          for PROVIDER in "${PROVIDERS[@]}"; do
+            KT_FILE="$PROVIDER/src/main/kotlin/com/cncverse/${PROVIDER}.kt"
+            echo "Compilando $PROVIDER..."
+            
+            kotlinc "$KT_FILE" \
+              -classpath "$CLASSPATH" \
+              -d "build_output/${PROVIDER}.jar" \
+              -jvm-target 1.8 \
+              -nowarn 2>&1 | tail -5 || true
+            
+            if [ -f "build_output/${PROVIDER}.jar" ]; then
+              echo "✅ $PROVIDER compilado ($(wc -c < build_output/${PROVIDER}.jar) bytes)"
+            else
+              echo "❌ $PROVIDER falló en compilación"
+            fi
           done
-          echo ""
-          echo "=== Directorio builds/ en raíz ==="
-          ls -la builds/ 2>/dev/null || echo "(no existe)"
 
-      - name: Build todos los módulos
-        run: |
-          gradle :DoramasYTProvider:make    || true
-          gradle :DoramasFlixProvider:make  || true
-          gradle :DoramasiaProvider:make    || true
-          gradle :PeliCineHDProvider:make   || true
-          gradle :PelisJuanitaProvider:make || true
-
-      - name: Encontrar .cs3 después del build
-        run: |
-          echo "=== Buscando .cs3 en TODO el sistema ==="
-          find / -name "*.cs3" 2>/dev/null | grep -v "/proc/" | grep -v "/sys/" || echo "Ninguno"
-          echo ""
-          echo "=== Directorio builds/ en raíz ==="
-          ls -la builds/ 2>/dev/null || echo "(no existe)"
-          echo ""
-          echo "=== build/outputs en módulos ==="
-          find . -path "*/build/outputs*" -type f 2>/dev/null | head -20 || true
-          find . -path "*/build/libs*" -type f 2>/dev/null | head -20 || true
-
-      - name: Recopilar .cs3
+      - name: Convertir .jar a .cs3 con d8
         run: |
           mkdir -p output
-          # Buscar en todas las ubicaciones posibles
-          find / -name "*.cs3" 2>/dev/null | grep -v "/proc/" | grep -v "/sys/" | \
-            xargs -I{} cp {} output/ 2>/dev/null || true
-          # También buscar en el directorio builds/ de Gradle
-          cp builds/*.cs3 output/ 2>/dev/null || true
-          echo "=== CS3 en output: ==="
+          
+          D8=$(find $ANDROID_SDK_ROOT -name "d8" -type f 2>/dev/null | head -1)
+          echo "d8 encontrado en: $D8"
+          
+          for JAR in build_output/*.jar; do
+            PROVIDER=$(basename "$JAR" .jar)
+            echo "Convirtiendo $PROVIDER..."
+            
+            mkdir -p "dex_output/$PROVIDER"
+            "$D8" "$JAR" \
+              --output "dex_output/$PROVIDER" \
+              --min-api 21 2>&1 | tail -3 || true
+            
+            if [ -f "dex_output/$PROVIDER/classes.dex" ]; then
+              cp "dex_output/$PROVIDER/classes.dex" "output/${PROVIDER}.cs3"
+              echo "✅ ${PROVIDER}.cs3 creado ($(wc -c < output/${PROVIDER}.cs3) bytes)"
+            else
+              echo "❌ $PROVIDER falló en conversión DEX"
+            fi
+          done
+          
+          echo "=== output/ ==="
           ls -lh output/ || echo "(vacío)"
 
       - name: Generar plugins.json
@@ -111,4 +133,4 @@ jobs:
           git diff --cached --quiet && echo "Sin cambios" && exit 0
           git commit -m "Build $(date +'%Y-%m-%d %H:%M') [$(git log origin/main -1 --pretty=format:'%h')]"
           git push origin builds
-          echo "Publicado en rama builds"
+          echo "✅ Publicado en rama builds"
