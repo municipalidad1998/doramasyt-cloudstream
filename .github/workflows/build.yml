@@ -115,7 +115,7 @@ jobs:
             fi
           done
 
-      - name: Convertir .jar a .cs3 con d8
+      - name: Convertir .jar a .cs3 (ZIP con manifest + DEX)
         run: |
           mkdir -p output
           D8=$(find $ANDROID_SDK_ROOT -name "d8" -type f 2>/dev/null | head -1)
@@ -123,28 +123,33 @@ jobs:
           KOTLIN_STDLIB="/opt/kotlinc/lib/kotlin-stdlib.jar"
           echo "d8: $D8  android.jar: $ANDROID_JAR"
           
-          # Construir argumentos --lib para excluir del output DEX
-          LIB_ARGS="--lib $ANDROID_JAR"
-          LIB_ARGS="$LIB_ARGS --lib $KOTLIN_STDLIB"
-          LIB_ARGS="$LIB_ARGS --lib libs/coroutines.jar"
-          LIB_ARGS="$LIB_ARGS --lib libs/jsoup.jar"
-          LIB_ARGS="$LIB_ARGS --lib libs/json.jar"
-          LIB_ARGS="$LIB_ARGS --lib build_output/cloudstream-stubs.jar"
+          # --lib excluye las clases del output DEX
+          LIB_ARGS="--lib $ANDROID_JAR --lib $KOTLIN_STDLIB --lib libs/coroutines.jar --lib libs/jsoup.jar --lib libs/json.jar --lib build_output/cloudstream-stubs.jar"
           
           for JAR in build_output/DoramasYTProvider.jar build_output/DoramasFlixProvider.jar \
                      build_output/DoramasiaProvider.jar build_output/PeliCineHDProvider.jar \
                      build_output/PelisJuanitaProvider.jar; do
-            if [ ! -f "$JAR" ]; then echo "Skipping $JAR (no existe)"; continue; fi
+            if [ ! -f "$JAR" ]; then echo "Skipping $JAR"; continue; fi
             PROVIDER=$(basename "$JAR" .jar)
-            echo "Convirtiendo $PROVIDER..."
+            echo "=== Procesando $PROVIDER ==="
+            
+            # 1. Convertir JAR → DEX
             mkdir -p "dex_out/$PROVIDER"
-            "$D8" "$JAR" $LIB_ARGS --output "dex_out/$PROVIDER" --min-api 21 2>&1 | tail -5
-            if [ -f "dex_out/$PROVIDER/classes.dex" ]; then
-              cp "dex_out/$PROVIDER/classes.dex" "output/${PROVIDER}.cs3"
-              echo "✅ ${PROVIDER}.cs3 ($(wc -c < output/${PROVIDER}.cs3) bytes)"
-            else
-              echo "❌ $PROVIDER: sin .dex"
+            "$D8" "$JAR" $LIB_ARGS --output "dex_out/$PROVIDER" --min-api 21 2>&1 | tail -3
+            
+            if [ ! -f "dex_out/$PROVIDER/classes.dex" ]; then
+              echo "❌ Sin DEX para $PROVIDER"
+              continue
             fi
+            
+            # 2. Crear ZIP con manifest.json + classes.dex (formato .cs3 correcto)
+            cd "dex_out/$PROVIDER"
+            cp "../../manifests/${PROVIDER}.json" manifest.json
+            zip -q "${PROVIDER}.cs3" manifest.json classes.dex
+            cp "${PROVIDER}.cs3" "../../output/"
+            cd ../..
+            
+            echo "✅ ${PROVIDER}.cs3 ($(wc -c < output/${PROVIDER}.cs3) bytes)"
           done
           
           echo "=== output/ ==="

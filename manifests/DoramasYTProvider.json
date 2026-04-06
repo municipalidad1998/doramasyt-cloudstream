@@ -1,0 +1,6 @@
+{
+  "requiresResources": false,
+  "version": 2,
+  "pluginClassName": "com.cncverse.DoramasYTProvider",
+  "name": "DoramasYT"
+}
