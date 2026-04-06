@@ -37,29 +37,47 @@ jobs:
           unzip -q kotlin.zip -d /opt/
           echo "/opt/kotlinc/bin" >> $GITHUB_PATH
 
-      - name: Download dependencias
+      - name: Download dependencias y API de CloudStream
         run: |
           mkdir -p libs
           
-          # Jsoup y JSON desde Maven
+          # Dependencias estándar
           wget -q "https://repo1.maven.org/maven2/org/jsoup/jsoup/1.16.1/jsoup-1.16.1.jar" -O libs/jsoup.jar
           wget -q "https://repo1.maven.org/maven2/org/json/json/20231013/json-20231013.jar" -O libs/json.jar
           wget -q "https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.3/kotlinx-coroutines-core-jvm-1.7.3.jar" -O libs/coroutines.jar
           
-          # Intentar obtener CloudStream API real de JitPack
-          CS_SIZE=0
-          for URL in \
-            "https://jitpack.io/com/github/recloudstream/cloudstream/pre-release-SNAPSHOT/cloudstream-pre-release-SNAPSHOT.jar" \
-            "https://jitpack.io/com/github/recloudstream/cloudstream/master-SNAPSHOT/cloudstream-master-SNAPSHOT.jar"; do
-            wget -q --timeout=30 "$URL" -O libs/cloudstream-api.jar 2>/dev/null || true
-            CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
-            if [ "$CS_SIZE" -gt "10000" ]; then
-              echo "✅ CloudStream API: $CS_SIZE bytes"
-              break
+          # Descargar APK de CloudStream prerelease y extraer clases DEX → JAR
+          echo "Descargando CloudStream APK..."
+          wget -q --timeout=60 "https://github.com/recloudstream/cloudstream/releases/latest/download/app-prerelease-release.apk"             -O /tmp/cloudstream.apk 2>/dev/null || true
+          
+          APK_SIZE=$(wc -c < /tmp/cloudstream.apk 2>/dev/null || echo 0)
+          echo "APK size: $APK_SIZE"
+          
+          if [ "$APK_SIZE" -gt "1000000" ]; then
+            echo "✅ APK descargado ($APK_SIZE bytes)"
+            
+            # Extraer DEX del APK
+            mkdir -p /tmp/cs_dex
+            unzip -q /tmp/cloudstream.apk "classes*.dex" -d /tmp/cs_dex/ 2>/dev/null || true
+            ls -lh /tmp/cs_dex/
+            
+            # Instalar dex2jar para convertir DEX→JAR
+            wget -q "https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip"               -O /tmp/dex2jar.zip 2>/dev/null || true
+            D2J_SIZE=$(wc -c < /tmp/dex2jar.zip 2>/dev/null || echo 0)
+            
+            if [ "$D2J_SIZE" -gt "100000" ]; then
+              unzip -q /tmp/dex2jar.zip -d /opt/dex2jar/
+              chmod +x /opt/dex2jar/dex-tools-v2.4/d2j-dex2jar.sh
+              /opt/dex2jar/dex-tools-v2.4/d2j-dex2jar.sh /tmp/cs_dex/classes.dex -o libs/cloudstream-api.jar 2>/dev/null || true
+              CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+              echo "CloudStream API JAR: $CS_SIZE bytes"
             fi
-          done
-          if [ "$CS_SIZE" -le "10000" ]; then
-            echo "⚠️ JitPack no disponible - usando stubs"
+          fi
+          
+          # Fallback a stubs si falló
+          CS_SIZE=$(wc -c < libs/cloudstream-api.jar 2>/dev/null || echo 0)
+          if [ "$CS_SIZE" -lt "10000" ]; then
+            echo "⚠️ Usando stubs - APK/dex2jar no disponible"
             touch libs/cloudstream-api.jar
           fi
           
