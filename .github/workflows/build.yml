@@ -12,6 +12,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,4 +71,4 @@ jobs:
           git diff --cached --quiet && echo "Sin cambios" && exit 0
           git commit -m "Build $(date +'%Y-%m-%d %H:%M') [$(git log origin/main -1 --pretty=format:'%h')]"
           git push origin builds
-          echo "Publicado en rama builds"
+          echo "✅ Publicado en rama builds"
