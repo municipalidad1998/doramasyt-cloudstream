@@ -10,22 +10,8 @@ buildscript {
     }
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-        maven("https://jitpack.io")
-    }
-}
-
-subprojects {
-    afterEvaluate {
-        tasks.findByName("make")?.let { makeTask ->
-            rootProject.tasks.findByName("makeAll")?.dependsOn(makeTask)
-        }
-    }
-}
-
 tasks.register("makeAll") {
     group = "build"
+    description = "Build all CS3 plugins"
+    dependsOn(subprojects.mapNotNull { it.tasks.findByName("make") })
 }

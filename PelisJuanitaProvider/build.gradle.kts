@@ -1,4 +1,6 @@
-apply(plugin = "com.lagradost.cloudstream3.gradle")
+plugins {
+    id("com.lagradost.cloudstream3.gradle")
+}
 
 version = 2
 
