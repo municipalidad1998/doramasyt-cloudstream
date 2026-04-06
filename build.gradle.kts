@@ -19,8 +19,5 @@ allprojects {
 }
 
 tasks.register("makeAll") {
-    val makeList = subprojects.mapNotNull { sub ->
-        sub.tasks.findByName("make")
-    }
-    dependsOn(makeList)
+    dependsOn(subprojects.mapNotNull { it.tasks.findByName("make") })
 }
