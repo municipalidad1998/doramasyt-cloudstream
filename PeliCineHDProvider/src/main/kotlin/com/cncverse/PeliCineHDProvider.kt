@@ -31,9 +31,11 @@ class PeliCineHDProvider : MainAPI() {
 
     // Cada item es un <li> que contiene h2 (título) + img TMDB + link "Ver pelicula/serie"
     private fun Element.toSearchResponse(): SearchResponse? {
-        val title  = this.selectFirst("h2")?.text()?.trim() ?: return null
-        val poster = this.selectFirst("img[src*='image.tmdb.org'], img[src*='tmdb.org']")
-            ?.attr("src")?.takeIf { it.isNotBlank() }
+        val title  = this.selectFirst("h2, h3")?.text()?.trim() ?: return null
+        val imgEl  = this.selectFirst("img[data-src*='tmdb'], img[src*='tmdb'], img[data-src], img")
+        val poster = listOf(
+            imgEl?.attr("data-src"), imgEl?.attr("data-img"), imgEl?.attr("src")
+        ).firstOrNull { !it.isNullOrBlank() && it.startsWith("http") }
         // El link puede ser el wrapper del item o el "Ver pelicula/serie" button
         val href = this.selectFirst(
             "a[href*='/peliculas/'], a[href*='/series/'], a[href*='/category/']"
@@ -52,8 +54,8 @@ class PeliCineHDProvider : MainAPI() {
         val url = buildPage(request.data, page)
         val doc = app.get(url).document
         // Seleccionamos solo <li> que tengan img TMDB (= cards de contenido real)
-        val items = doc.select("li").toList().filter {
-            it.selectFirst("img[src*='tmdb']") != null && it.selectFirst("h2") != null
+        val items = doc.select("li, article, .item, .movie-card, .card").toList().filter {
+            it.selectFirst("h2, h3") != null && it.selectFirst("a[href]") != null
         }.mapNotNull { it.toSearchResponse() }
         return newHomePageResponse(listOf(HomePageList(request.name, items)))
     }
@@ -61,7 +63,7 @@ class PeliCineHDProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? {
         val doc = app.get("$mainUrl/?s=${java.net.URLEncoder.encode(query, "UTF-8")}").document
         return doc.select("li").toList().filter {
-            it.selectFirst("img[src*='tmdb']") != null && it.selectFirst("h2") != null
+            (it.selectFirst("img[src*='tmdb'], img[data-src*='tmdb']") != null || it.selectFirst("img[data-src]") != null) && it.selectFirst("h2") != null
         }.mapNotNull { it.toSearchResponse() }
     }
 
