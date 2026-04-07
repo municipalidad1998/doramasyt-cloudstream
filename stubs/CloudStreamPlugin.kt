@@ -2,7 +2,6 @@
 package com.lagradost.cloudstream3.plugins
 
 import android.content.Context
-import android.content.res.Resources
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.utils.ExtractorApi
 
@@ -18,7 +17,7 @@ open class BasePlugin {
 
 // Plugin extiende BasePlugin — CloudStream carga esto
 open class Plugin : BasePlugin() {
-    open var resources: Resources? = null
+    // resources omitted
     open var openSettings: ((Context) -> Unit)? = null
     open fun load(context: Context) {}
     open fun registerVideoClickAction(action: Any) {}

@@ -20,29 +20,26 @@ data class MainPageRequest(val name: String, val data: String, val horizontalIma
 data class SubtitleFile(val lang: String, val url: String, val headers: Map<String,String> = emptyMap())
 
 // ── SearchResponse ─────────────────────────────────────────────────
-open class SearchResponse {
-    var name: String = ""; var url: String = ""; var apiName: String = ""
-    var type: TvType? = null; var posterUrl: String? = null
+open class SearchResponse(
+    open var name: String = "", open var url: String = "", open var apiName: String = "",
+    open var type: TvType? = null, open var posterUrl: String? = null
+) {
     var id: Int? = null; var quality: SearchQuality? = null
     var posterHeaders: Map<String,String>? = null; var score: Score? = null
-    constructor()
-    constructor(name: String, url: String, apiName: String, type: TvType?, posterUrl: String?) {
-        this.name=name; this.url=url; this.apiName=apiName; this.type=type; this.posterUrl=posterUrl
-    }
 }
-open class MovieSearchResponse : SearchResponse() {
+open class MovieSearchResponse(
+    name: String="", url: String="", apiName: String="", type: TvType?=null, posterUrl: String?=null
+) : SearchResponse(name, url, apiName, type, posterUrl) {
     var year: Int? = null
-    constructor() : super()
-    constructor(name: String, url: String, apiName: String, type: TvType?, posterUrl: String?) : super(name,url,apiName,type,posterUrl)
 }
-open class TvSeriesSearchResponse : SearchResponse() {
+open class TvSeriesSearchResponse(
+    name: String="", url: String="", apiName: String="", type: TvType?=null, posterUrl: String?=null
+) : SearchResponse(name, url, apiName, type, posterUrl) {
     var year: Int? = null; var episodes: Int? = null
-    constructor() : super()
-    constructor(name: String, url: String, apiName: String, type: TvType?, posterUrl: String?) : super(name,url,apiName,type,posterUrl)
 }
 
 // ── LoadResponse ───────────────────────────────────────────────────
-open class LoadResponse {
+open class LoadResponse() {
     var name: String = ""; var url: String = ""; var apiName: String = ""
     var type: TvType = TvType.TvSeries; var posterUrl: String? = null
     var year: Int? = null; var plot: String? = null; var score: Score? = null
