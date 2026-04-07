@@ -208,67 +208,72 @@ class DoramasYTProvider : MainAPI() {
         data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data, headers = mapOf(
+        val epDoc = app.get(data, headers = mapOf(
             "Referer" to mainUrl,
             "User-Agent" to "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36"
         )).document
 
         var found = false
 
-        // Estrategia 1: iframe ya cargado en la página
-        for (iframe in doc.select("iframe[src], iframe[data-src]")) {
-            val src = iframe.attr("src").takeIf { it.isNotBlank() }
-                ?: iframe.attr("data-src")
-            if (src.startsWith("http") && !src.contains("ads") && !src.contains("promo")) {
-                found = true
-                extractVideoLink(src, "Server", callback)
-            }
+        // Extraer token CSRF del episodio
+        var token = ""
+        for (s in epDoc.select("script")) {
+            listOf(
+                Regex("""resource_token\s*=\s*['"]([^'"]+)['"]"""),
+                Regex("""_token['"]\s*:\s*['"]([a-zA-Z0-9/+=]{20,})['"]"""),
+                Regex("""csrf[_-]token['"]\s*:\s*['"]([^'"]+)['"]""")
+            ).forEach { r -> r.find(s.data())?.let { if (token.isEmpty()) token = it.groupValues[1] } }
+        }
+        // También buscar en meta tags
+        if (token.isEmpty())
+            token = epDoc.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
+
+        // Obtener playerKey del atributo data-key del player
+        val playerKey = epDoc.selectFirst("[data-key]")?.attr("data-key")
+            ?: "$mainUrl/reproductor?video="
+
+        // Procesar cada botón de servidor (tabs: Mega, Filemoon, Voe, etc.)
+        val serverBtns = epDoc.select("[data-player], button.play-video, .server-item, .opt, [data-id]")
+        for (btn in serverBtns) {
+            val enc = btn.attr("data-player").takeIf { it.isNotBlank() }
+                ?: btn.attr("data-id").takeIf { it.isNotBlank() }
+                ?: continue
+            val sName = btn.text().trim().ifBlank { "Server" }
+            val reproUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(sName,"UTF-8")}&token=$token"
+            found = true
+            extractReproductor(reproUrl, sName, callback)
         }
 
-        // Estrategia 2: botones de servidor con data-player → llamada AJAX
+        // Si no encontró botones, buscar iframes directos
         if (!found) {
-            var token = ""
-            for (s in doc.select("script")) {
-                Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())
-                    ?.let { token = it.groupValues[1] }
-            }
-            val playerKey = doc.selectFirst(".player, [data-key]")?.attr("data-key")
-                ?: "$mainUrl/reproductor?video="
-
-            for (btn in doc.select("[data-player], button[data-server], .tab-server[data-id]")) {
-                val enc = btn.attr("data-player").takeIf { it.isNotBlank() }
-                    ?: btn.attr("data-server").takeIf { it.isNotBlank() }
-                    ?: btn.attr("data-id")
-                val serverName = btn.text().trim().ifBlank { "Server" }
-                if (!enc.isNullOrBlank()) {
+            for (iframe in epDoc.select("iframe[src], iframe[data-src]")) {
+                val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }
+                if (src.startsWith("http") && !src.contains("google") && !src.contains("facebook")) {
                     found = true
-                    val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(serverName,"UTF-8")}&token=$token"
-                    extractReproductor(pUrl, serverName, callback)
+                    extractVideoLink(src, "Player", callback)
                 }
             }
         }
 
-        // Estrategia 3: URLs de video en scripts
-        if (!found) {
-            for (s in doc.select("script")) {
-                val scriptText = s.data()
-                for (m in Regex("""['""](https?://[^'""]+\.(?:mp4|m3u8)[^'""]{0,200})['"""]""").findAll(scriptText)) {
-                    val v = m.groupValues[1]
-                    if (!v.contains("ads") && !v.contains("track")) {
-                        found = true
-                        callback.invoke(newExtractorLink(name, name, v,
-                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                            referer = data; quality = Qualities.Unknown.value
-                        })
-                    }
+        // Buscar URLs de video directas en scripts (m3u8, mp4)
+        for (s in epDoc.select("script")) {
+            for (m in Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']{0,300})["']""").findAll(s.data())) {
+                val v = m.groupValues[1]
+                if (!v.contains("ads") && !v.contains("google") && v.length < 500) {
+                    found = true
+                    callback.invoke(newExtractorLink("$name - Direct", name, v,
+                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                        referer = data; quality = Qualities.Unknown.value
+                    })
                 }
             }
         }
 
-        // Estrategia 4: links directos de descarga/streaming
-        for (link in doc.select(
-            "a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='streamtape.com'], " +
-            "a[href*='doodstream.com'], a[href*='filemoon'], a[href*='voe.sx']"
+        // Links de descarga directa (siempre agregarlos aunque found=true)
+        for (link in epDoc.select(
+            "a[href*='streamtape'], a[href*='doodstream'], a[href*='dood.'], " +
+            "a[href*='voe.sx'], a[href*='filemoon'], a[href*='mixdrop'], " +
+            "a[href*='gofile.io'], a[href*='pixeldrain']"
         )) {
             val href = link.attr("href").trim()
             if (href.startsWith("http")) {
@@ -282,21 +287,47 @@ class DoramasYTProvider : MainAPI() {
 
     private suspend fun extractReproductor(url: String, sName: String, cb: (ExtractorLink) -> Unit) {
         try {
-            val doc = app.get(url, headers = mapOf("Referer" to mainUrl,
-                "User-Agent" to "Mozilla/5.0")).document
-            for (iframe in doc.select("iframe")) {
-                val src = iframe.attr("src").trim()
+            val resp = app.get(url, headers = mapOf(
+                "Referer" to mainUrl,
+                "User-Agent" to "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36",
+                "X-Requested-With" to "XMLHttpRequest"
+            ))
+            val text = resp.text
+            val doc  = resp.document
+
+            // 1. Buscar iframe en la respuesta HTML
+            for (iframe in doc.select("iframe[src], iframe[data-src]")) {
+                val src = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
                 if (src.startsWith("http")) extractVideoLink(src, sName, cb)
             }
+
+            // 2. Buscar URLs de video en scripts
             for (s in doc.select("script")) {
-                Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']*)["']""").findAll(s.data())
-                    .forEach { m ->
-                        val v = m.groupValues[1]
-                        cb.invoke(newExtractorLink("$name - $sName", "$name - $sName", v,
-                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                            referer = mainUrl; quality = Qualities.Unknown.value
-            })
+                for (m in Regex("""["'](https?://[^"']+\.(?:mp4|m3u8)[^"']{0,300})["']""").findAll(s.data())) {
+                    val v = m.groupValues[1]
+                    if (!v.contains("ads")) cb.invoke(newExtractorLink("$name - $sName", name, v,
+                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                        referer = url; quality = Qualities.Unknown.value
+                    })
+                }
+            }
+
+            // 3. Si la respuesta es JSON con url/src/file
+            if (text.trimStart().startsWith("{")) {
+                try {
+                    val json = org.json.JSONObject(text)
+                    val videoUrl = json.optString("url","").ifBlank {
+                        json.optString("src","").ifBlank { json.optString("file","") }
                     }
+                    if (videoUrl.startsWith("http")) extractVideoLink(videoUrl, sName, cb)
+                } catch (_: Exception) {}
+            }
+
+            // 4. Buscar src= en el HTML sin parsear
+            Regex("""src\s*[=:]\s*["'](https?://[^"']{10,300})["']""").findAll(text).forEach { m ->
+                val v = m.groupValues[1]
+                if (!v.contains("ads") && !v.contains("google") && !v.contains("jquery"))
+                    extractVideoLink(v, sName, cb)
             }
         } catch (_: Exception) {}
     }
