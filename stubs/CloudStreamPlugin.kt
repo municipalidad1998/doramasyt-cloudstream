@@ -21,5 +21,4 @@ open class Plugin : BasePlugin() {
     open var openSettings: ((Context) -> Unit)? = null
     open fun load(context: Context) {}
     open fun registerVideoClickAction(action: Any) {}
-    open fun getFilename(): String = __filename
 }
