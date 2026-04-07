@@ -51,7 +51,7 @@ open class LoadResponse() {
     var uniqueUrl: String? = null; var logoUrl: String? = null; var rating: Int? = null
 }
 
-open class TvSeriesLoadResponse : LoadResponse() {
+open class TvSeriesLoadResponse : LoadResponse {
     var episodes: List<Episode> = emptyList()
     var showStatus: ShowStatus? = null
     var latestEpisodes: Map<Any,Any> = emptyMap()
@@ -63,7 +63,7 @@ open class TvSeriesLoadResponse : LoadResponse() {
     }
 }
 
-open class MovieLoadResponse : LoadResponse() {
+open class MovieLoadResponse : LoadResponse {
     var dataUrl: String = ""
     constructor() : super()
     constructor(name: String, url: String, apiName: String, type: TvType, dataUrl: String) : super() {

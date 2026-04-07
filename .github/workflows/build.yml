@@ -97,7 +97,7 @@ jobs:
           else
             echo "⚠️ Compilando stubs de CloudStream API"
             kotlinc \
-              stubs/AndroidStubs.kt stubs/OkHttpStubs.kt \
+              stubs/AndroidStubs.kt stubs/AndroidResStubs.kt stubs/OkHttpStubs.kt \
               stubs/NiceHttpStubs.kt stubs/CloudStreamStubs.kt \
               stubs/MainActivityStubs.kt stubs/CloudStreamUtils.kt \
               stubs/CloudStreamPlugin.kt \
