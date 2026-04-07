@@ -96,10 +96,17 @@ jobs:
             cp libs/cloudstream-api.jar build_output/cloudstream-stubs.jar
           else
             echo "⚠️ Compilando stubs de CloudStream API"
-            kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt stubs/CloudStreamPlugin.kt stubs/AndroidStubs.kt \
+            kotlinc \
+              stubs/AndroidStubs.kt \
+              stubs/OkHttpStubs.kt \
+              stubs/NiceHttpStubs.kt \
+              stubs/CloudStreamStubs.kt \
+              stubs/MainActivityStubs.kt \
+              stubs/CloudStreamUtils.kt \
+              stubs/CloudStreamPlugin.kt \
               -classpath "$CLASSPATH" \
               -d build_output/cloudstream-stubs.jar \
-              -jvm-target 1.8 -nowarn 2>&1 | tail -5
+              -jvm-target 1.8 -nowarn 2>&1 | tail -10
             if [ ! -f build_output/cloudstream-stubs.jar ]; then
               echo "❌ Stubs fallaron"
               exit 1

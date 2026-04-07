@@ -1,4 +1,4 @@
-@file:Suppress("UNUSED_PARAMETER", "unused")
+@file:Suppress("UNUSED_PARAMETER","unused")
 package com.lagradost.cloudstream3.plugins
 
 import android.content.Context
