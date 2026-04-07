@@ -161,6 +161,6 @@ class DoramasiaProvider : MainAPI() {
 
 class DoramasiaPlugin : Plugin() {
     override fun load(context: android.content.Context) {
-        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.DoramasiaProvider())
+        registerMainAPI(com.cncverse.DoramasiaProvider())
     }
 }

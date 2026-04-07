@@ -166,6 +166,6 @@ class DoramasFlixProvider : MainAPI() {
 
 class DoramasFlixPlugin : Plugin() {
     override fun load(context: android.content.Context) {
-        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.DoramasFlixProvider())
+        registerMainAPI(com.cncverse.DoramasFlixProvider())
     }
 }

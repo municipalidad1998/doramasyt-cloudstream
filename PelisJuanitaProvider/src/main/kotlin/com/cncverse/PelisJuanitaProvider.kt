@@ -165,6 +165,6 @@ class PelisJuanitaProvider : MainAPI() {
 
 class PelisJuanitaPlugin : Plugin() {
     override fun load(context: android.content.Context) {
-        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.PelisJuanitaProvider())
+        registerMainAPI(com.cncverse.PelisJuanitaProvider())
     }
 }

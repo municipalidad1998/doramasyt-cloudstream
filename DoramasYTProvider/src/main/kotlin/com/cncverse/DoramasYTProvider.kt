@@ -282,6 +282,6 @@ class DoramasYTProvider : MainAPI() {
 
 class DoramasYTPlugin : Plugin() {
     override fun load(context: android.content.Context) {
-        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.DoramasYTProvider())
+        registerMainAPI(com.cncverse.DoramasYTProvider())
     }
 }

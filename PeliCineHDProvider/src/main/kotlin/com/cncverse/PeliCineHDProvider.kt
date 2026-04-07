@@ -158,6 +158,6 @@ class PeliCineHDProvider : MainAPI() {
 
 class PeliCineHDPlugin : Plugin() {
     override fun load(context: android.content.Context) {
-        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.PeliCineHDProvider())
+        registerMainAPI(com.cncverse.PeliCineHDProvider())
     }
 }
