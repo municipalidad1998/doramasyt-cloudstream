@@ -126,5 +126,3 @@ suspend fun MainAPI.newMovieLoadResponse(name: String, url: String, type: TvType
 fun toRatingInt(rating: String?): Int? = rating?.toDoubleOrNull()?.times(10)?.toInt()
 fun MainAPI.updateUrl(url: String): String = fixUrl(url)
 
-// app shortcut
-val app: Requests get() = com.lagradost.cloudstream3.getApp()
