@@ -54,17 +54,22 @@ open class LoadResponse {
 }
 open class TvSeriesLoadResponse(
     override var name: String="", override var url: String="", override var apiName: String="",
-    override var type: TvType=TvType.TvSeries, open var episodes: List<Episode>=emptyList(),
+    override var type: TvType=TvType.TvSeries, var episodes: List<Episode>=emptyList(),
     override var posterUrl: String?=null, override var year: Int?=null, override var plot: String?=null,
-    open var showStatus: ShowStatus?=null, override var score: Score?=null,
+    var showStatus: ShowStatus?=null, override var score: Score?=null,
     override var tags: List<String>?=null, override var duration: Int?=null,
-    override var recommendations: List<SearchResponse>?=null, override var actors: List<Any>?=null,
-    override var trailers: List<Any>=emptyList(), override var comingSoon: Boolean=false,
-    override var syncData: Map<String,String>=emptyMap(), open var latestEpisodes: Map<Any,Any>=emptyMap(),
-    open var nextAiring: NextAiring?=null, open var seasonNames: List<Any>?=null,
-    override var backgroundPosterUrl: String?=null, override var uniqueUrl: String?=null,
-    override var logoUrl: String?=null, override var contentRating: String?=null
-) : LoadResponse()
+    override var recommendations: List<SearchResponse>?=null, override var actors: List<Any>?=null
+) : LoadResponse() {
+    var trailers: List<Any> = emptyList()
+    var comingSoon: Boolean = false
+    var syncData: Map<String,String> = emptyMap()
+    var latestEpisodes: Map<Any,Any> = emptyMap()
+    var nextAiring: NextAiring? = null
+    var seasonNames: List<Any>? = null
+    var uniqueUrl: String? = null
+    var logoUrl: String? = null
+    var contentRating: String? = null
+}
 
 open class MovieLoadResponse(
     override var name: String="", override var url: String="", override var apiName: String="",
