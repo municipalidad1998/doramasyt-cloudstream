@@ -72,11 +72,7 @@ open class MovieLoadResponse(
     override var posterUrl: String?=null, override var year: Int?=null, override var plot: String?=null,
     override var score: Score?=null, override var tags: List<String>?=null,
     override var duration: Int?=null, override var recommendations: List<SearchResponse>?=null,
-    override var actors: List<Any>?=null, override var trailers: List<Any>=emptyList(),
-    override var comingSoon: Boolean=false, override var syncData: Map<String,String>=emptyMap(),
-    override var posterHeaders: Map<String,String>?=null, override var backgroundPosterUrl: String?=null,
-    override var uniqueUrl: String?=null, override var logoUrl: String?=null,
-    override var contentRating: String?=null
+    override var actors: List<Any>?=null
 ) : LoadResponse()
 
 // ── Episode ────────────────────────────────────────────────────────

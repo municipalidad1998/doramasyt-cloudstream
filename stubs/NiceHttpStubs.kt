@@ -5,34 +5,22 @@ import org.jsoup.nodes.Document
 import okhttp3.*
 import java.util.concurrent.TimeUnit
 
-interface ResponseParser {
-    fun parse(text: String, klass: kotlin.reflect.KClass<*>): Any
-    fun parseSafe(text: String, klass: kotlin.reflect.KClass<*>): Any?
-    fun writeValueAsString(obj: Any): String
-    fun getMapper(): Any
-}
+interface ResponseParser
 
-class NiceResponse(val okhttpResponse: Response = Response.Builder().build(), val parser: ResponseParser? = null) {
+class NiceResponse {
     val text: String get() = ""
     val document: Document get() = Document("")
     val code: Int get() = 200
     val url: String get() = ""
     val cookies: Map<String,String> get() = emptyMap()
-    val headers: Headers get() = Headers.of()
-    val body: ResponseBody? get() = null
-    val size: Long? get() = null
     val isSuccessful: Boolean get() = true
+    val okhttpResponse: Response? get() = null
+    val body: ResponseBody? get() = null
+    val headers: Headers? get() = null
+    val size: Long? get() = null
 }
 
-open class Requests() {
-    constructor(
-        client: OkHttpClient, defaultHeaders: Map<String,String> = emptyMap(),
-        defaultReferer: String = "", defaultCookies: Map<String,String> = emptyMap(),
-        defaultData: Map<String,String> = emptyMap(), defaultCacheTime: Int = 0,
-        defaultCacheTimeUnit: TimeUnit = TimeUnit.SECONDS, defaultTimeOut: Long = 0L,
-        responseParser: ResponseParser? = null
-    ) : this()
-    
+open class Requests {
     var defaultHeaders: Map<String,String> = emptyMap()
     var defaultReferer: String = ""
     var defaultCookies: Map<String,String> = emptyMap()
@@ -41,7 +29,7 @@ open class Requests() {
     var defaultCacheTimeUnit: TimeUnit = TimeUnit.SECONDS
     var defaultTimeOut: Long = 30000L
     var responseParser: ResponseParser? = null
-    var baseClient: OkHttpClient = OkHttpClient()
+    var baseClient: OkHttpClient? = null
     
     suspend fun get(
         url: String, headers: Map<String,String> = emptyMap(), referer: String? = null,
