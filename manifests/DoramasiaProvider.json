@@ -1,6 +1,6 @@
 {
   "requiresResources": false,
   "version": 2,
-  "pluginClassName": "com.cncverse.DoramasiaProvider",
+  "pluginClassName": "com.cncverse.DoramasiaPlugin",
   "name": "Doramasia"
 }

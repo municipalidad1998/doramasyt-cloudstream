@@ -1,5 +1,6 @@
 package com.cncverse
 
+import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -159,5 +160,11 @@ class PelisJuanitaProvider : MainAPI() {
                 if (src.startsWith("http") && src != url) extractEmbed(src, cb)
             }
         } catch (_: Exception) {}
+    }
+}
+
+class PelisJuanitaPlugin : Plugin() {
+    override fun load(context: android.content.Context) {
+        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.PelisJuanitaProvider())
     }
 }

@@ -96,7 +96,7 @@ jobs:
             cp libs/cloudstream-api.jar build_output/cloudstream-stubs.jar
           else
             echo "⚠️ Compilando stubs de CloudStream API"
-            kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt \
+            kotlinc stubs/CloudStreamStubs.kt stubs/CloudStreamUtils.kt stubs/CloudStreamPlugin.kt stubs/AndroidStubs.kt \
               -classpath "$CLASSPATH" \
               -d build_output/cloudstream-stubs.jar \
               -jvm-target 1.8 -nowarn 2>&1 | tail -5

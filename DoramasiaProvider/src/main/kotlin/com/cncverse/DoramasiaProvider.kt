@@ -1,5 +1,6 @@
 package com.cncverse
 
+import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -155,5 +156,11 @@ class DoramasiaProvider : MainAPI() {
                 if (src.startsWith("http") && src != url) extractVideo(src, cb)
             }
         } catch (_: Exception) {}
+    }
+}
+
+class DoramasiaPlugin : Plugin() {
+    override fun load(context: android.content.Context) {
+        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.DoramasiaProvider())
     }
 }

@@ -1,6 +1,6 @@
 {
   "requiresResources": false,
   "version": 2,
-  "pluginClassName": "com.cncverse.DoramasYTProvider",
+  "pluginClassName": "com.cncverse.DoramasYTPlugin",
   "name": "DoramasYT"
 }

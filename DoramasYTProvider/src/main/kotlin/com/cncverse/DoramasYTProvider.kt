@@ -1,5 +1,6 @@
 package com.cncverse
 
+import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -276,5 +277,11 @@ class DoramasYTProvider : MainAPI() {
     private fun generateRandomString(length: Int = 10): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         return (1..length).map { chars.random() }.joinToString("")
+    }
+}
+
+class DoramasYTPlugin : Plugin() {
+    override fun load(context: android.content.Context) {
+        com.lagradost.cloudstream3.plugins.registerMainAPI(com.cncverse.DoramasYTProvider())
     }
 }
