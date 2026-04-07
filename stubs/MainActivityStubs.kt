@@ -4,6 +4,5 @@ package com.lagradost.cloudstream3
 
 import com.lagradost.nicehttp.Requests
 
+@JvmField
 var app: Requests = Requests()
-fun getApp(): Requests = app
-fun setApp(r: Requests) { app = r }
