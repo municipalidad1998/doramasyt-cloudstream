@@ -209,29 +209,59 @@ class DoramasYTProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
         app.get(mainUrl)
-        val doc = app.get(data).document
+        val doc = app.get(data, headers = mapOf("Referer" to mainUrl)).document
+
+        // Patrón 1: botones data-player con token (estructura actual de doramasyt)
         var token = ""
         for (s in doc.select("script")) {
-            Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())
+            Regex("""resource_token\s*=\s*['""]([^'""]+)['""]""").find(s.data())
                 ?.let { token = it.groupValues[1] }
         }
         val playerKey = doc.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
-        for (btn in doc.select("button.play-video[data-player]")) {
-            val enc  = btn.attr("data-player")
-            val name2 = btn.text().trim()
+        var found = false
+        for (btn in doc.select("button.play-video[data-player], button[data-player], [data-player]")) {
+            val enc = btn.attr("data-player")
+            val name2 = btn.text().trim().ifBlank { "Servidor" }
             if (enc.isNotBlank()) {
+                found = true
                 val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(name2,"UTF-8")}&token=$token"
                 extractReproductor(pUrl, name2, callback)
-        }
-        }
-        doc.select("a.btn[href*='gofile.io'],a.btn[href*='pixeldrain.com'],a.btn[href*='mega.nz']")
-            .forEach { link ->
-                val href = link.attr("href").trim()
-                if (href.isNotBlank()) callback.invoke(
-                    newExtractorLink("$name - ${link.text().trim()}", "$name - ${link.text().trim()}",
-                        href, ExtractorLinkType.VIDEO) { referer = mainUrl; quality = Qualities.Unknown.value }
-                )
             }
+        }
+
+        // Patrón 2: iframes directos en la página del episodio
+        if (!found) {
+            for (iframe in doc.select("iframe[src], iframe[data-src]")) {
+                val src = (iframe.attr("src").takeIf { it.isNotBlank() } ?: iframe.attr("data-src")).trim()
+                if (src.startsWith("http")) {
+                    found = true
+                    extractVideoLink(src, "Server", callback)
+                }
+            }
+        }
+
+        // Patrón 3: links directos de video en scripts
+        if (!found) {
+            for (s in doc.select("script")) {
+                for (m in Regex("""['"](https?://[^'"]+\.(?:mp4|m3u8)[^'"]*)['"]""").findAll(s.data())) {
+                    val v = m.groupValues[1]
+                    found = true
+                    callback.invoke(newExtractorLink(name, name, v,
+                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                        referer = mainUrl; quality = Qualities.Unknown.value
+                    })
+                }
+            }
+        }
+
+        // Patrón 4: links directos (gofile, mega, etc)
+        for (link in doc.select("a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='mega.nz'], a[href*='mediafire.com']")) {
+            val href = link.attr("href").trim()
+            if (href.isNotBlank()) callback.invoke(
+                newExtractorLink("$name - ${link.text().trim().ifBlank{"Link"}}", name,
+                    href, ExtractorLinkType.VIDEO) { referer = mainUrl; quality = Qualities.Unknown.value }
+            )
+        }
         return true
     }
 
