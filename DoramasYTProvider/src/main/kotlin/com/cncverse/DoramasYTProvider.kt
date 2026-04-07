@@ -208,61 +208,76 @@ class DoramasYTProvider : MainAPI() {
         data: String, isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit
     ): Boolean {
-        app.get(mainUrl)
-        val doc = app.get(data, headers = mapOf("Referer" to mainUrl)).document
+        val doc = app.get(data, headers = mapOf(
+            "Referer" to mainUrl,
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36"
+        )).document
 
-        // Patrón 1: botones data-player con token (estructura actual de doramasyt)
-        var token = ""
-        for (s in doc.select("script")) {
-            Regex("""resource_token\s*=\s*['""]([^'""]+)['""]""").find(s.data())
-                ?.let { token = it.groupValues[1] }
-        }
-        val playerKey = doc.selectFirst(".player")?.attr("data-key") ?: "$mainUrl/reproductor?video="
         var found = false
-        for (btn in doc.select("button.play-video[data-player], button[data-player], [data-player]")) {
-            val enc = btn.attr("data-player")
-            val name2 = btn.text().trim().ifBlank { "Servidor" }
-            if (enc.isNotBlank()) {
+
+        // Estrategia 1: iframe ya cargado en la página
+        for (iframe in doc.select("iframe[src], iframe[data-src]")) {
+            val src = iframe.attr("src").takeIf { it.isNotBlank() }
+                ?: iframe.attr("data-src")
+            if (src.startsWith("http") && !src.contains("ads") && !src.contains("promo")) {
                 found = true
-                val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(name2,"UTF-8")}&token=$token"
-                extractReproductor(pUrl, name2, callback)
+                extractVideoLink(src, "Server", callback)
             }
         }
 
-        // Patrón 2: iframes directos en la página del episodio
+        // Estrategia 2: botones de servidor con data-player → llamada AJAX
         if (!found) {
-            for (iframe in doc.select("iframe[src], iframe[data-src]")) {
-                val src = (iframe.attr("src").takeIf { it.isNotBlank() } ?: iframe.attr("data-src")).trim()
-                if (src.startsWith("http")) {
+            var token = ""
+            for (s in doc.select("script")) {
+                Regex("""resource_token\s*=\s*['"]([^'"]+)['"]""").find(s.data())
+                    ?.let { token = it.groupValues[1] }
+            }
+            val playerKey = doc.selectFirst(".player, [data-key]")?.attr("data-key")
+                ?: "$mainUrl/reproductor?video="
+
+            for (btn in doc.select("[data-player], button[data-server], .tab-server[data-id]")) {
+                val enc = btn.attr("data-player").takeIf { it.isNotBlank() }
+                    ?: btn.attr("data-server").takeIf { it.isNotBlank() }
+                    ?: btn.attr("data-id")
+                val serverName = btn.text().trim().ifBlank { "Server" }
+                if (!enc.isNullOrBlank()) {
                     found = true
-                    extractVideoLink(src, "Server", callback)
+                    val pUrl = "${playerKey}${enc}&player=${java.net.URLEncoder.encode(serverName,"UTF-8")}&token=$token"
+                    extractReproductor(pUrl, serverName, callback)
                 }
             }
         }
 
-        // Patrón 3: links directos de video en scripts
+        // Estrategia 3: URLs de video en scripts
         if (!found) {
             for (s in doc.select("script")) {
-                for (m in Regex("""['"](https?://[^'"]+\.(?:mp4|m3u8)[^'"]*)['"]""").findAll(s.data())) {
+                val scriptText = s.data()
+                for (m in Regex("""['""](https?://[^'""]+\.(?:mp4|m3u8)[^'""]{0,200})['"""]""").findAll(scriptText)) {
                     val v = m.groupValues[1]
-                    found = true
-                    callback.invoke(newExtractorLink(name, name, v,
-                        if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
-                        referer = mainUrl; quality = Qualities.Unknown.value
-                    })
+                    if (!v.contains("ads") && !v.contains("track")) {
+                        found = true
+                        callback.invoke(newExtractorLink(name, name, v,
+                            if (v.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                            referer = data; quality = Qualities.Unknown.value
+                        })
+                    }
                 }
             }
         }
 
-        // Patrón 4: links directos (gofile, mega, etc)
-        for (link in doc.select("a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='mega.nz'], a[href*='mediafire.com']")) {
+        // Estrategia 4: links directos de descarga/streaming
+        for (link in doc.select(
+            "a[href*='gofile.io'], a[href*='pixeldrain.com'], a[href*='streamtape.com'], " +
+            "a[href*='doodstream.com'], a[href*='filemoon'], a[href*='voe.sx']"
+        )) {
             val href = link.attr("href").trim()
-            if (href.isNotBlank()) callback.invoke(
-                newExtractorLink("$name - ${link.text().trim().ifBlank{"Link"}}", name,
-                    href, ExtractorLinkType.VIDEO) { referer = mainUrl; quality = Qualities.Unknown.value }
-            )
+            if (href.startsWith("http")) {
+                found = true
+                extractVideoLink(href, link.text().trim().ifBlank { "Link" }, callback)
+            }
         }
-        return true
+
+        return found
     }
 
     private suspend fun extractReproductor(url: String, sName: String, cb: (ExtractorLink) -> Unit) {
