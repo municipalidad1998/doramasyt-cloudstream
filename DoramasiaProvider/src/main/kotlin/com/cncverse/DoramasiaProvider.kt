@@ -39,8 +39,9 @@ class DoramasiaProvider : MainAPI() {
             this.selectFirst("img[data-src]")?.attr("data-src"),
             this.selectFirst("img[data-img]")?.attr("data-img"),
             this.selectFirst("img[data-original]")?.attr("data-original"),
+            this.selectFirst("img[data-url]")?.attr("data-url"),
             this.selectFirst("img:not([src^='data:'])")?.attr("src"),
-        ).firstOrNull { !it.isNullOrBlank() && !it.isPlaceholder() }
+        ).firstOrNull { !it.isNullOrBlank() && it.trim().isNotEmpty() && !it.isPlaceholder() }
     }
 
     private fun Element.toSearchResponse(): SearchResponse? {

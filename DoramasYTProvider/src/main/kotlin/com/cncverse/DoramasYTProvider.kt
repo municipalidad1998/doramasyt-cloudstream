@@ -38,14 +38,18 @@ class DoramasYTProvider : MainAPI() {
         placeholderImages.any { this.contains(it) }
 
     private fun Element.realImageUrl(): String? {
-        val img = this.selectFirst("img.lazy, img[data-src], img[data-img], img[data-original], img")
+        val img = this.selectFirst("img.lazy, img[data-src], img[data-img], img[data-original], img.poster, .poster img, img")
             ?: return null
         return listOf(
             img.attr("data-src"),
             img.attr("data-img"),
             img.attr("data-original"),
             img.attr("data-lazy-src"),
+            img.attr("data-url"),
             img.attr("src")
+        ).map { it.trim() }.firstOrNull { it.isNotBlank() && it.startsWith("http") && !it.isPlaceholder() }
+            ?: listOf(
+            img.attr("data-src"), img.attr("src")
         ).firstOrNull { it.isNotBlank() && !it.isPlaceholder() }
     }
 
@@ -62,7 +66,7 @@ class DoramasYTProvider : MainAPI() {
         if (page <= 1) baseUrl else "$baseUrl?p=$page"
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = app.get(buildUrl(request.data, page)).document
+        val doc = app.get(buildUrl(request.data, page), headers = mapOf("Referer" to mainUrl)).document
         val items = doc.select("li.ficha_efecto, div.ficha_efecto, .col-6")
             .mapNotNull { it.toSearchResponse() }
         return newHomePageResponse(listOf(HomePageList(request.name, items)))
