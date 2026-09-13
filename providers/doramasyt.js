@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:52:32.479Z
+ * Generated: 2026-09-13T23:53:26.497Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -394,13 +394,7 @@ function addUrl(out, seen, url, referer, title = "Servidor") {
   if (u.startsWith("//")) u = "https:" + u;
   if (!/^https?:\/\//i.test(u) || seen.has(u)) return;
   seen.add(u);
-  out.push({
-    name: "DoramaYT",
-    title,
-    url: u,
-    quality: /(?:2160|4k)/i.test(u) ? "2160p" : /1080/i.test(u) ? "1080p" : /720/i.test(u) ? "720p" : /480/i.test(u) ? "480p" : "Auto",
-    headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer })
-  });
+  out.push({ name: "DoramaYT", title, url: u, quality: /(?:2160|4k)/i.test(u) ? "2160p" : /1080/i.test(u) ? "1080p" : /720/i.test(u) ? "720p" : /480/i.test(u) ? "480p" : "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer }) });
 }
 function unwrapPlayer(url) {
   const value = decode(url);
@@ -468,8 +462,8 @@ function isUsefulNested(url) {
     if (!host) return false;
     if (/(googletagmanager|google-analytics|doubleclick|facebook\.com|facebook\.net|gstatic\.com|cloudflareinsights)/i.test(host)) return false;
     if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf)(?:$|[?#])/i.test(url)) return false;
-    const knownHost = /(filemoon|streamwish|strwish|wishembed|wishfast|voe|dood|ds2play|filelions|mixdrop|streamtape|streamsb|uqload|vidmoly|vidhide|vidplay|vidsonic|ok\.ru|okru|embed|earnvid|lulu|mp4upload|savefiles|streamable)/i.test(host);
-    const playerPath = /(?:\/embed(?:\/|$)|\/player(?:\/|$)|\/e\/|\/f\/|\/d\/|\/video\/|\/watch\/|\/stream\/|\/play\/)/i.test(path);
+    const knownHost = /(filemoon|streamwish|strwish|wishembed|wishfast|voe|dood|ds2play|filelions|mixdrop|streamtape|streamsb|uqload|vidmoly|vidhide|vidplay|vidsonic|ok\.ru|okru|embed|earnvid|lulu|mp4upload|savefiles|streamable|doramasyt\.com)/i.test(host);
+    const playerPath = /(?:\/reproductor(?:\/|$)|\/embed(?:\/|$)|\/player(?:\/|$)|\/e\/|\/f\/|\/d\/|\/video\/|\/watch\/|\/stream\/|\/play\/)/i.test(path);
     return knownHost || playerPath;
   } catch (_) {
     return false;
@@ -488,8 +482,7 @@ function resolveDood(url, referer) {
       const token = passUrl.split("/").pop();
       const base = yield request(passUrl, { headers: { Referer: embedUrl } });
       if (!base || !/^https?:\/\//i.test(base.trim())) return [];
-      const streamUrl = base.trim() + Math.random().toString(36).slice(2, 12) + "?token=" + token;
-      return [{ url: streamUrl, referer: host + "/", title: "DoodStream" }];
+      return [{ url: base.trim() + Math.random().toString(36).slice(2, 12) + "?token=" + token, referer: host + "/", title: "DoodStream" }];
     } catch (error) {
       console.error("[DoramaYT] Dood resolver: " + error.message);
       return [];
@@ -502,9 +495,8 @@ function resolveStreamTape(url, referer) {
     try {
       const html = yield request(url, { headers: { Referer: referer } });
       const bot = html.match(/id=["']botlink["'][^>]*>([^<]+)<\/[^>]+>/i);
-      const value = bot ? bot[1].trim() : (html.match(/botlink['\"]\)\.innerHTML\s*=\s*["']([^"']+)/i) || [])[1] || "";
-      if (!value) return [];
-      let stream = value;
+      if (!bot) return [];
+      let stream = bot[1].trim();
       if (stream.startsWith("//")) stream = "https:" + stream;
       else if (stream.startsWith("/")) stream = "https://streamtape.com" + stream;
       if (!/^https?:\/\//i.test(stream)) return [];
@@ -532,8 +524,7 @@ function extractStreams(_0) {
       const raw = decode(candidate.value);
       if (candidate.script) {
         const unpacked = unpackPacker(raw);
-        const scriptValues = unpacked ? [raw, unpacked] : [raw];
-        for (const script of scriptValues) {
+        for (const script of unpacked ? [raw, unpacked] : [raw]) {
           const media = script.match(/https?:\\?\/\\?\/[^\s"'<>]+(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi) || [];
           for (const url of media) addUrl(direct, seen, url, pageUrl, "Servidor");
         }
@@ -551,11 +542,9 @@ function extractStreams(_0) {
     for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
       try {
         const more = yield extractStreams(nestedUrl, depth + 1, visited, pageUrl);
-        for (const stream of more) {
-          if (!seen.has(stream.url)) {
-            seen.add(stream.url);
-            direct.push(stream);
-          }
+        for (const stream of more) if (!seen.has(stream.url)) {
+          seen.add(stream.url);
+          direct.push(stream);
         }
       } catch (error) {
         console.error("[DoramaYT] Nested extractor: " + error.message);
