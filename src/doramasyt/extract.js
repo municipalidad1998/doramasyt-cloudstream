@@ -25,12 +25,9 @@ function base64ToText(value) {
   } catch (_) { return ""; }
 }
 
-// CloudStream uses JsUnpacker for many external hosts. Port the same
-// P.A.C.K.E.R. decoder so Nuvio can see URLs hidden inside eval(function(p,a,c,k,e,d)).
 function unpackPacker(script) {
   const source = String(script || "");
   if (!/eval\s*\(\s*function\s*\(p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*[rd]\s*\)/i.test(source)) return "";
-
   const match = source.match(/}\s*\(['"]([\s\S]*?)['"]\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*['"]([\s\S]*?)['"]\.split\(['"]\|['"]\)/i);
   if (!match) return "";
 
@@ -43,10 +40,7 @@ function unpackPacker(script) {
   const alphabet62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const alphabet95 = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
   let alphabet = "";
-  if (radix > 36) {
-    if (radix <= 62) alphabet = alphabet62.slice(0, radix);
-    else if (radix <= 95) alphabet = alphabet95.slice(0, radix);
-  }
+  if (radix > 36) alphabet = radix <= 62 ? alphabet62.slice(0, radix) : alphabet95.slice(0, radix);
 
   function unbase(word) {
     if (radix <= 36) return parseInt(word, radix);
@@ -61,9 +55,7 @@ function unpackPacker(script) {
 
   return payload.replace(/\b[a-zA-Z0-9_]+\b/g, (word) => {
     const index = unbase(word);
-    return Number.isInteger(index) && index >= 0 && index < symtab.length && symtab[index]
-      ? symtab[index]
-      : word;
+    return Number.isInteger(index) && index >= 0 && index < symtab.length && symtab[index] ? symtab[index] : word;
   });
 }
 
@@ -94,7 +86,9 @@ function collectRawCandidates(html) {
   const out = [];
   let m;
 
-  const attrs = /(?:src|href|file|source|data-src|data-file|data-video|data-embed|data-url)=\s*["']([^"']+)["']/gi;
+  // Do not crawl ordinary navigation hrefs. They caused the extractor to walk
+  // analytics/navigation pages instead of resolving the actual video host.
+  const attrs = /(?:src|file|source|data-src|data-file|data-video|data-embed|data-url)=\s*["']([^"']+)["']/gi;
   while ((m = attrs.exec(html))) out.push({ value: m[1], nested: true });
 
   const players = /data-player=\s*["']([^"']+)["']/gi;
@@ -118,8 +112,6 @@ function collectRawCandidates(html) {
   const mediaUrls = /https?:\\?\/\\?\/[^\s"'<>]+\.(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi;
   while ((m = mediaUrls.exec(html))) out.push({ value: m[0], nested: false });
 
-  // Parse normal and packed script bodies. Packed scripts are common on
-  // Filemoon/StreamWish-style hosts and otherwise hide the actual media URL.
   const scripts = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
   while ((m = scripts.exec(html))) {
     const body = m[1] || "";
@@ -138,19 +130,56 @@ function isLikelyMedia(url) {
 
 function isUsefulNested(url) {
   try {
-    const host = new URL(url).hostname.toLowerCase();
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
     if (!host) return false;
-    if (/^(www\.)?doramasyt\.com$/i.test(host)) return /(?:reproductor|player|stream|video)/i.test(url);
+    if (/(googletagmanager|google-analytics|doubleclick|facebook\.com|facebook\.net|gstatic\.com|cloudflareinsights)/i.test(host)) return false;
     if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf)(?:$|[?#])/i.test(url)) return false;
-    return true;
+
+    const knownHost = /(filemoon|streamwish|strwish|wishembed|wishfast|voe|dood|ds2play|filelions|mixdrop|streamtape|streamsb|uqload|vidmoly|vidhide|vidplay|vidsonic|ok\.ru|okru|embed|earnvid|lulu|mp4upload|streamable)/i.test(host);
+    const playerPath = /(?:\/embed(?:\/|$)|\/player(?:\/|$)|\/e\/|\/f\/|\/d\/|\/video\/|\/watch\/|\/stream\/|\/play\/)/i.test(path);
+    return knownHost || playerPath;
   } catch (_) {
     return false;
+  }
+}
+
+async function resolveDood(url, referer) {
+  if (!/dood(?:stream)?\.|dood\./i.test(url)) return [];
+  try {
+    const embedUrl = url.replace(/\/d\//i, "/e/");
+    const html = await request(embedUrl, { headers: { Referer: referer } });
+    const host = new URL(embedUrl).origin;
+    const pass = html.match(/\/pass_md5\/[^'"\s<]+/i);
+    if (!pass) return [];
+    const passUrl = new URL(pass[0], host).toString();
+    const token = passUrl.split("/").pop();
+    const base = await request(passUrl, { headers: { Referer: embedUrl } });
+    if (!base || !/^https?:\/\//i.test(base.trim())) return [];
+    const hash = Math.random().toString(36).slice(2, 12);
+    const streamUrl = base.trim() + hash + "?token=" + token;
+    return [{ url: streamUrl, referer: host + "/", title: "DoodStream" }];
+  } catch (error) {
+    console.error("[DoramaYT] Dood resolver: " + error.message);
+    return [];
   }
 }
 
 export async function extractStreams(pageUrl, depth = 0, visited = new Set(), parentReferer = "https://www.doramasyt.com/") {
   if (depth > 5 || visited.has(pageUrl)) return [];
   visited.add(pageUrl);
+
+  const knownDood = await resolveDood(pageUrl, parentReferer);
+  if (knownDood.length) {
+    return knownDood.map(item => ({
+      name: "DoramaYT",
+      title: item.title,
+      url: item.url,
+      quality: /1080/i.test(item.url) ? "1080p" : "Auto",
+      headers: { ...HEADERS, Referer: item.referer }
+    }));
+  }
 
   const html = await request(pageUrl, { headers: { Referer: parentReferer } });
   const direct = [];
@@ -161,11 +190,10 @@ export async function extractStreams(pageUrl, depth = 0, visited = new Set(), pa
     const raw = decode(candidate.value);
     if (candidate.script) {
       const unpacked = unpackPacker(raw);
-      if (unpacked) {
-        for (const value of [raw, unpacked]) {
-          const media = value.match(/https?:\\?\/\\?\/[^\s"'<>]+(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi) || [];
-          for (const url of media) addUrl(direct, seen, url, pageUrl, "Servidor");
-        }
+      const scriptValues = unpacked ? [raw, unpacked] : [raw];
+      for (const script of scriptValues) {
+        const media = script.match(/https?:\\?\/\\?\/[^\s"'<>]+(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi) || [];
+        for (const url of media) addUrl(direct, seen, url, pageUrl, "Servidor");
       }
       continue;
     }
@@ -175,15 +203,12 @@ export async function extractStreams(pageUrl, depth = 0, visited = new Set(), pa
     for (const value of values) {
       const u = absoluteUrl(value, pageUrl);
       if (!u) continue;
-      if (isLikelyMedia(u)) {
-        addUrl(direct, seen, u, pageUrl);
-      } else if (candidate.nested && depth < 5 && isUsefulNested(u)) {
-        nested.push(u);
-      }
+      if (isLikelyMedia(u)) addUrl(direct, seen, u, pageUrl);
+      else if (candidate.nested && depth < 5 && isUsefulNested(u)) nested.push(u);
     }
   }
 
-  for (const nestedUrl of [...new Set(nested)].slice(0, 20)) {
+  for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
     try {
       const more = await extractStreams(nestedUrl, depth + 1, visited, pageUrl);
       for (const stream of more) {
