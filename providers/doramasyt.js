@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:53:26.497Z
+ * Generated: 2026-09-13T23:54:27.203Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -392,6 +392,13 @@ function addUrl(out, seen, url, referer, title = "Servidor") {
   if (!url) return;
   let u = decode(url).replace(/["'<>),;]+$/g, "");
   if (u.startsWith("//")) u = "https:" + u;
+  try {
+    const parsed = new URL(u);
+    if (/doramasyt\.com$/i.test(parsed.hostname) && /\/reproductor/i.test(parsed.pathname)) return;
+    if (/\.(?:mp4|m3u8|mpd|mkv|webm)$/i.test(parsed.hostname)) return;
+  } catch (_) {
+    return;
+  }
   if (!/^https?:\/\//i.test(u) || seen.has(u)) return;
   seen.add(u);
   out.push({ name: "DoramaYT", title, url: u, quality: /(?:2160|4k)/i.test(u) ? "2160p" : /1080/i.test(u) ? "1080p" : /720/i.test(u) ? "720p" : /480/i.test(u) ? "480p" : "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer }) });
@@ -449,8 +456,10 @@ function collectRawCandidates(html) {
 function isLikelyMedia(url) {
   try {
     const parsed = new URL(url);
+    if (/\.(?:mp4|m3u8|mpd|mkv|webm)$/i.test(parsed.hostname)) return false;
     if (/(?:streamtape\.com|mp4upload\.com|savefiles\.com|bysekoze\.com)/i.test(parsed.hostname) && /(?:\/e\/|\/embed[-/])/i.test(parsed.pathname)) return false;
   } catch (_) {
+    return false;
   }
   return /\.(m3u8|mpd|mp4|mkv|webm|m4v|mov|ts|avi|flv|3gp|mpeg|mpg|ogv)(?:$|[?#])/i.test(url) || /(?:\.m3u8\?|\.mpd\?|manifest(?:\.m3u8)?|playlist(?:\.m3u8)?|master\.txt)/i.test(url);
 }
@@ -498,6 +507,7 @@ function resolveStreamTape(url, referer) {
       if (!bot) return [];
       let stream = bot[1].trim();
       if (stream.startsWith("//")) stream = "https:" + stream;
+      else if (/^\/streamtape\.com\//i.test(stream)) stream = "https://" + stream.replace(/^\//, "");
       else if (stream.startsWith("/")) stream = "https://streamtape.com" + stream;
       if (!/^https?:\/\//i.test(stream)) return [];
       if (!/[?&]stream=1(?:&|$)/i.test(stream)) stream += (stream.includes("?") ? "&" : "?") + "stream=1";
