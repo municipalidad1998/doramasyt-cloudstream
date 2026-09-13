@@ -1,0 +1,10 @@
+{
+  "name": "municipalidad-doramasyt-nuvio",
+  "private": true,
+  "scripts": {
+    "build": "node build.js doramasyt"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
