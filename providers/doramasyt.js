@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:13:13.342Z
+ * Generated: 2026-09-13T23:20:31.826Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -180,14 +180,11 @@ function findEpisodeFromApi(detailUrl, episode) {
     const pages = Math.max(1, Math.ceil(total / perPage));
     const paginateUrl = absoluteUrl(first.paginate_url || api.ajax);
     for (let page = 1; page <= pages; page++) {
-      let data = first;
-      if (page > 1) {
-        data = yield postForm(
-          paginateUrl,
-          "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
-          api.referer
-        );
-      }
+      const data = yield postForm(
+        paginateUrl,
+        "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
+        api.referer
+      );
       const caps = data && Array.isArray(data.caps) ? data.caps : [];
       for (const cap of caps) {
         if (Number(cap.episodio) === Number(episode) && cap.url) {
@@ -214,12 +211,12 @@ function searchDorama(title) {
         if (candidates.length) return candidates[0].href;
         if (!best) {
           const fallback = anchors.filter((a) => titleMatch(a.text, q));
-          if (fallback.length) best = fallback[0].href;
+          if (fallback.length) best = fallback[0];
         }
       } catch (_) {
       }
     }
-    if (best) return best;
+    if (best) return best.href;
     throw new Error("DoramaYT title not found: " + title);
   });
 }
@@ -233,15 +230,13 @@ function getEpisodeUrl(detailUrl, title, episode) {
       console.error("[DoramaYT] Episode API: " + error.message);
     }
     const queries = aliases(title);
-    for (const q of queries) {
-      try {
-        const html = yield request(BASE_URL + "/emision");
-        const anchors = parseAnchors(html);
-        const wanted = new RegExp("(?:cap[i\xED]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
-        const found = anchors.find((a) => titleMatch(a.text, q) && wanted.test(a.text));
-        if (found) return found.href;
-      } catch (_) {
-      }
+    try {
+      const html = yield request(BASE_URL + "/emision");
+      const anchors = parseAnchors(html);
+      const wanted = new RegExp("(?:cap[i\xED]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
+      const found = anchors.find((a) => queries.some((q) => titleMatch(a.text, q)) && wanted.test(a.text));
+      if (found) return found.href;
+    } catch (_) {
     }
     return detailUrl;
   });
@@ -253,21 +248,21 @@ function decode(value) {
 }
 function base64ToText(value) {
   try {
-    const input = String(value || "").replace(/\s/g, "");
-    if (!input || !/^[A-Za-z0-9+/=_-]+$/.test(input)) return "";
-    if (typeof atob === "function") {
-      const binary = atob(input.replace(/-/g, "+").replace(/_/g, "/"));
-      let out = "";
-      for (let i = 0; i < binary.length; i++) out += String.fromCharCode(binary.charCodeAt(i));
-      try {
-        return decodeURIComponent(escape(out));
-      } catch (_) {
-        return out;
-      }
+    let input = String(value || "").replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!input || !/^[A-Za-z0-9+/=]+$/.test(input)) return "";
+    while (input.length % 4) input += "=";
+    if (typeof atob !== "function") return "";
+    const binary = atob(input);
+    let out = "";
+    for (let i = 0; i < binary.length; i++) out += String.fromCharCode(binary.charCodeAt(i));
+    try {
+      return decodeURIComponent(escape(out));
+    } catch (_) {
+      return out;
     }
   } catch (_) {
+    return "";
   }
-  return "";
 }
 function addUrl(out, seen, url, referer, title = "Servidor") {
   if (!url) return;
@@ -292,6 +287,7 @@ function collectRawCandidates(html) {
   while (m = players.exec(html)) {
     const decoded = base64ToText(m[1]);
     if (decoded) out.push({ value: decoded, nested: true });
+    else out.push({ value: m[1], nested: true });
   }
   const iframe = /<iframe[^>]+src=["']([^"']+)["']/gi;
   while (m = iframe.exec(html)) out.push({ value: m[1], nested: true });
@@ -347,7 +343,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     try {
       const title = yield getTmdbTitle(tmdbId, mediaType);
       const detail = yield searchDorama(title);
-      const pageUrl = mediaType === "tv" && episode ? yield getEpisodeUrl(detail, episode) : detail;
+      const pageUrl = mediaType === "tv" && episode ? yield getEpisodeUrl(detail, title, episode) : detail;
       const streams = yield extractStreams(pageUrl);
       return streams;
     } catch (error) {
