@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:26:46.333Z
+ * Generated: 2026-09-13T23:35:01.495Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -111,6 +111,16 @@ function aliases(title) {
   if (n === "eres mi sol") out.push("tan resplandeciente como el sol", "shine on me");
   return [...new Set(out)];
 }
+function episodeNumber(value) {
+  const text = String(value == null ? "" : value).trim();
+  if (!text) return 0;
+  const direct = Number(text);
+  if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+  const match = text.match(/(?:S\d+\s*)?E\s*(\d+)|(?:episode|episodio|cap[ií]tulo|ep)\s*\.?\s*(\d+)/i);
+  if (match) return Number(match[1] || match[2]);
+  const numbers = text.match(/\d+/g);
+  return numbers && numbers.length ? Number(numbers[numbers.length - 1]) : 0;
+}
 function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const type = mediaType === "tv" || mediaType === "series" ? "tv" : "movie";
@@ -142,6 +152,14 @@ function titleMatch(text, title) {
   const hits = words.filter((w) => a.includes(w)).length;
   return words.length > 1 && hits >= Math.max(2, words.length - 1);
 }
+function episodeMatch(item, title, episode) {
+  const ep = episodeNumber(episode);
+  if (!ep) return false;
+  const text = normalize(item.text + " " + item.href);
+  if (!titleMatch(text, title)) return false;
+  const wanted = new RegExp("(?:cap[i\xED]tulo|episodio|episode|ep|e|x)[^0-9]{0,10}0*" + ep + "(?:\\D|$)", "i");
+  return wanted.test(text) || new RegExp("(?:1x|s0*1e|e)0*" + ep + "(?:\\D|$)", "i").test(text);
+}
 function postForm(url, body, referer) {
   return __async(this, null, function* () {
     return request(url, {
@@ -159,38 +177,72 @@ function postForm(url, body, referer) {
   });
 }
 function extractEpisodeApi(html, detailUrl) {
-  const tokenMatch = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i);
-  const ajaxMatch = html.match(/class=["'][^"']*caplist[^"']*["'][^>]+data-ajax=["']([^"']+)/i) || html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i);
-  if (!tokenMatch || !ajaxMatch) return null;
+  const tokenMatch = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i) || html.match(/name=["']csrf-token["'][^>]+content=["']([^"']+)/i);
+  const ajaxMatch = html.match(/class=["'][^"']*caplist[^"']*["'][^>]+data-ajax=["']([^"']+)/i) || html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i) || html.match(/data-ajax=["']([^"']+)["']/i);
+  if (!ajaxMatch) return null;
   return {
-    token: tokenMatch[1],
+    token: tokenMatch ? tokenMatch[1] : "",
     ajax: absoluteUrl(ajaxMatch[1]),
     referer: detailUrl
   };
 }
 function findEpisodeFromApi(detailUrl, episode) {
   return __async(this, null, function* () {
+    const wantedEpisode = episodeNumber(episode);
+    if (!wantedEpisode) return null;
     const html = yield request(detailUrl);
     const api = extractEpisodeApi(html, detailUrl);
     if (!api) return null;
-    const first = yield postForm(api.ajax, "_token=" + encodeURIComponent(api.token), api.referer);
+    const body = api.token ? "_token=" + encodeURIComponent(api.token) : "";
+    const first = yield postForm(api.ajax, body, api.referer);
     if (!first || typeof first !== "object") return null;
     const total = Array.isArray(first.eps) ? first.eps.length : 0;
     const perPage = Number(first.perpage || total || 1);
     const pages = Math.max(1, Math.ceil(total / perPage));
     const paginateUrl = absoluteUrl(first.paginate_url || api.ajax);
     for (let page = 1; page <= pages; page++) {
-      const data = yield postForm(
-        paginateUrl,
-        "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
-        api.referer
-      );
+      const pageBody = (api.token ? "_token=" + encodeURIComponent(api.token) + "&" : "") + "p=" + encodeURIComponent(page);
+      const data = yield postForm(paginateUrl, pageBody, api.referer);
       const caps = data && Array.isArray(data.caps) ? data.caps : [];
       for (const cap of caps) {
-        if (Number(cap.episodio) === Number(episode) && cap.url) {
-          return absoluteUrl(cap.url);
-        }
+        if (episodeNumber(cap.episodio) === wantedEpisode && cap.url) return absoluteUrl(cap.url);
       }
+    }
+    return null;
+  });
+}
+function findEpisodeFromSearch(title, episode) {
+  return __async(this, null, function* () {
+    const queries = aliases(title);
+    for (const q of queries) {
+      try {
+        const html = yield request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
+        const anchors = parseAnchors(html);
+        const matches = anchors.filter((a) => episodeMatch(a, q, episode));
+        if (matches.length) {
+          matches.sort((a, b) => {
+            const aEpisode = episodeNumber(a.text + " " + a.href);
+            const bEpisode = episodeNumber(b.text + " " + b.href);
+            return Math.abs(aEpisode - episodeNumber(episode)) - Math.abs(bEpisode - episodeNumber(episode));
+          });
+          return matches[0].href;
+        }
+      } catch (_) {
+      }
+    }
+    return null;
+  });
+}
+function findEpisodeFromEmission(title, episode) {
+  return __async(this, null, function* () {
+    const wanted = episodeNumber(episode);
+    if (!wanted) return null;
+    try {
+      const html = yield request(BASE_URL + "/emision");
+      const anchors = parseAnchors(html);
+      const matches = anchors.filter((a) => episodeMatch(a, title, wanted));
+      if (matches.length) return matches[0].href;
+    } catch (_) {
     }
     return null;
   });
@@ -222,21 +274,25 @@ function searchDorama(title) {
 }
 function getEpisodeUrl(detailUrl, title, episode) {
   return __async(this, null, function* () {
-    if (!episode) return detailUrl;
+    const wanted = episodeNumber(episode);
+    if (!wanted) return detailUrl;
     try {
-      const apiUrl = yield findEpisodeFromApi(detailUrl, episode);
+      const apiUrl = yield findEpisodeFromApi(detailUrl, wanted);
       if (apiUrl) return apiUrl;
     } catch (error) {
       console.error("[DoramaYT] Episode API: " + error.message);
     }
-    const queries = aliases(title);
     try {
-      const html = yield request(BASE_URL + "/emision");
-      const anchors = parseAnchors(html);
-      const wanted = new RegExp("(?:cap[i\xED]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
-      const found = anchors.find((a) => queries.some((q) => titleMatch(a.text, q)) && wanted.test(a.text));
-      if (found) return found.href;
-    } catch (_) {
+      const searchUrl = yield findEpisodeFromSearch(title, wanted);
+      if (searchUrl) return searchUrl;
+    } catch (error) {
+      console.error("[DoramaYT] Episode search: " + error.message);
+    }
+    try {
+      const emissionUrl = yield findEpisodeFromEmission(title, wanted);
+      if (emissionUrl) return emissionUrl;
+    } catch (error) {
+      console.error("[DoramaYT] Emission fallback: " + error.message);
     }
     return detailUrl;
   });
@@ -353,12 +409,19 @@ function extractStreams(_0) {
 }
 
 // src/doramasyt/index.js
+function normalizeMediaType(mediaType) {
+  const type = String(mediaType || "").toLowerCase();
+  if (type === "movie" || type === "film") return "movie";
+  if (type === "tv" || type === "series" || type === "show" || type === "tvseries") return "tv";
+  return type === "movie" ? "movie" : "tv";
+}
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      const title = yield getTmdbTitle(tmdbId, mediaType);
+      const type = normalizeMediaType(mediaType);
+      const title = yield getTmdbTitle(tmdbId, type);
       const detail = yield searchDorama(title);
-      const pageUrl = mediaType === "tv" && episode ? yield getEpisodeUrl(detail, title, episode) : detail;
+      const pageUrl = type === "tv" && episode ? yield getEpisodeUrl(detail, title, episode) : detail;
       const streams = yield extractStreams(pageUrl);
       return streams;
     } catch (error) {
