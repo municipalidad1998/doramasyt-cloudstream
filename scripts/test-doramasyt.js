@@ -13,6 +13,10 @@ async function inspectPage(url) {
   const players = [...html.matchAll(/data-player=["']([^"']+)["']/gi)].map(x => x[1]);
   console.log(`[RAW] data-player count=${players.length}`);
   if (players.length) console.log(`[RAW] first data-player=${players[0]}`);
+  const playerDiv = html.match(/<[^>]*class=["'][^"']*player[^"']*["'][^>]*>/i);
+  console.log(`[RAW] player-container=${playerDiv ? playerDiv[0] : ""}`);
+  const button = html.match(/<button[^>]*data-player=["'][^"']+["'][^>]*>/i);
+  console.log(`[RAW] first-player-button=${button ? button[0] : ""}`);
   return html;
 }
 
@@ -20,7 +24,7 @@ async function inspectScript(url) {
   const response = await fetch(url, { headers: HEADERS });
   const text = await response.text();
   console.log(`[SCRIPT] ${url} HTTP=${response.status} bytes=${text.length}`);
-  console.log(`[SCRIPT] BEGIN\n${text}\n[SCRIPT] END`);
+  console.log(`[SCRIPT] player construction=${(text.match(/var player_url[\s\S]{0,700}/i) || [""])[0]}`);
 }
 
 async function main() {
