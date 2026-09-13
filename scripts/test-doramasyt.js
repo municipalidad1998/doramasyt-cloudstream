@@ -6,18 +6,29 @@ const HEADERS = {
   "Accept-Language": "es-ES,es;q=0.9,en;q=0.5"
 };
 
-async function inspectPage(url) {
+async function inspectEpisode(url) {
   const response = await fetch(url, { headers: HEADERS });
   const html = await response.text();
   console.log(`[RAW] ${url} HTTP=${response.status} bytes=${html.length}`);
-  const players = [...html.matchAll(/data-player=["']([^"']+)["']/gi)].map(x => x[1]);
-  console.log(`[RAW] data-player count=${players.length}`);
-  if (players.length) console.log(`[RAW] first data-player=${players[0]}`);
-  const playerDiv = html.match(/<[^>]*class=["'][^"']*player[^"']*["'][^>]*>/i);
-  console.log(`[RAW] player-container=${playerDiv ? playerDiv[0] : ""}`);
-  const button = html.match(/<button[^>]*data-player=["'][^"']+["'][^>]*>/i);
-  console.log(`[RAW] first-player-button=${button ? button[0] : ""}`);
-  return html;
+
+  const key = (html.match(/<[^>]*class=["'][^"']*player[^"']*["'][^>]*data-key=["']([^"']+)["']/i) || [])[1] ||
+    (html.match(/<[^>]*data-key=["']([^"']+)["'][^>]*class=["'][^"']*player/i) || [])[1] || "";
+  const firstButton = html.match(/<button[^>]*data-player=["']([^"']+)["'][^>]*data-usa-api=["']([^"']+)["'][^>]*>/i);
+  console.log(`[RAW] playerKey=${key}`);
+  console.log(`[RAW] firstButton=${firstButton ? firstButton[0] : ""}`);
+
+  if (key && firstButton) {
+    const playerNameMatch = firstButton[0].match(/>([^<]+)</);
+    const playerName = playerNameMatch ? playerNameMatch[1].trim() : "Filemoon";
+    const playerUrl = key + firstButton[1] + "&player=" + encodeURIComponent(playerName);
+    console.log(`[RAW] constructedPlayer=${playerUrl}`);
+    const playerResponse = await fetch(playerUrl, { headers: { ...HEADERS, Referer: url } });
+    const playerHtml = await playerResponse.text();
+    console.log(`[PLAYER] HTTP=${playerResponse.status} bytes=${playerHtml.length} final=${playerResponse.url}`);
+    console.log(`[PLAYER] urls=${JSON.stringify([...playerHtml.matchAll(/https?:[^\s"'<>]+/gi)].map(x => x[0]).slice(0, 20))}`);
+    console.log(`[PLAYER] iframes=${JSON.stringify([...playerHtml.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)].map(x => x[1]).slice(0, 20))}`);
+    console.log(`[PLAYER] media=${JSON.stringify([...playerHtml.matchAll(/https?:[^\s"'<>]+\.(?:m3u8|mp4|mpd|mkv)[^\s"'<>]*/gi)].map(x => x[0]).slice(0, 20))}`);
+  }
 }
 
 async function inspectScript(url) {
@@ -34,7 +45,7 @@ async function main() {
   const episode = process.argv[5] ? Number(process.argv[5]) : 1;
 
   console.log(`[TEST] tmdbId=${tmdbId} type=${mediaType} season=${season} episode=${episode}`);
-  await inspectPage("https://www.doramasyt.com/ver/our-sticky-love-episodio-1");
+  await inspectEpisode("https://www.doramasyt.com/ver/our-sticky-love-episodio-1");
   await inspectScript("https://www.doramasyt.com/js/capitulo.js?v=1775974031");
 
   const streams = await getStreams(tmdbId, mediaType, season, episode);
