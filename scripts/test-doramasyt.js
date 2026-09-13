@@ -24,6 +24,11 @@ async function inspectPage(url) {
   while ((m = pr.exec(html))) players.push(m[1]);
   console.log(`[RAW] data-player count=${players.length}`);
   if (players.length) console.log(`[RAW] first data-player=${players[0]}`);
+
+  const important = [];
+  const ir = /<(?:iframe|video|source|script)[^>]*>|(?:playother|data-player|data-video|data-embed|m3u8|mp4|filemoon|streamwish|dood|uqload|vidsonic|ok\.ru)[^<\s]*/gi;
+  while ((m = ir.exec(html))) important.push(m[0].slice(0, 500));
+  console.log(`[RAW] important=${JSON.stringify(important.slice(0, 40))}`);
   return html;
 }
 
@@ -36,6 +41,7 @@ async function main() {
   console.log(`[TEST] tmdbId=${tmdbId} type=${mediaType} season=${season} episode=${episode}`);
   await inspectPage("https://www.doramasyt.com/");
   await inspectPage("https://www.doramasyt.com/dorama/our-sticky-love-sub-espanol");
+  await inspectPage("https://www.doramasyt.com/ver/our-sticky-love-episodio-1");
 
   const streams = await getStreams(tmdbId, mediaType, season, episode);
   console.log(`[TEST] STREAM_COUNT=${streams.length}`);
