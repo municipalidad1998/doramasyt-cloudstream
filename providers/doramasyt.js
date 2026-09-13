@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:20:31.826Z
+ * Generated: 2026-09-13T23:26:46.333Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -278,6 +278,17 @@ function addUrl(out, seen, url, referer, title = "Servidor") {
     headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer })
   });
 }
+function unwrapPlayer(url) {
+  const value = decode(url);
+  if (!/\/reproductor\?url=/i.test(value)) return "";
+  const match = value.match(/[?&]url=(.+)$/i);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch (_) {
+    return match[1];
+  }
+}
 function collectRawCandidates(html) {
   const out = [];
   let m;
@@ -286,8 +297,10 @@ function collectRawCandidates(html) {
   const players = /data-player=["']([^"']+)["']/gi;
   while (m = players.exec(html)) {
     const decoded = base64ToText(m[1]);
-    if (decoded) out.push({ value: decoded, nested: true });
-    else out.push({ value: m[1], nested: true });
+    const player = decoded || m[1];
+    const target = unwrapPlayer(player);
+    if (target) out.push({ value: target, nested: true });
+    out.push({ value: player, nested: true });
   }
   const iframe = /<iframe[^>]+src=["']([^"']+)["']/gi;
   while (m = iframe.exec(html)) out.push({ value: m[1], nested: true });
@@ -301,7 +314,7 @@ function isLikelyMedia(url) {
   return /\.(m3u8|mpd|mp4|mkv|webm|m4v|mov|ts|avi|flv|3gp|mpeg|mpg|ogv)(?:$|[?#])/i.test(url) || /(?:\.m3u8\?|\.mpd\?|manifest(?:\.m3u8)?|playlist(?:\.m3u8)?)/i.test(url);
 }
 function isUsefulNested(url) {
-  return /(?:voe|filemoon|moonplayer|streamwish|strwish|wishembed|wishfast|dood|doodstream|ds2play|filelions|mixdrop|streamtape|ok\.ru|okru|uqload|vidmoly|vidhide|vidplay|embed|player|stream)/i.test(url);
+  return /(?:voe|filemoon|moonplayer|streamwish|strwish|wishembed|wishfast|dood|doodstream|ds2play|filelions|mixdrop|streamtape|ok\.ru|okru|uqload|vidmoly|vidhide|vidplay|embed|player|stream|reproductor)/i.test(url);
 }
 function extractStreams(_0) {
   return __async(this, arguments, function* (pageUrl, depth = 0, visited = /* @__PURE__ */ new Set()) {
@@ -312,15 +325,17 @@ function extractStreams(_0) {
     const nested = [];
     const seen = /* @__PURE__ */ new Set();
     for (const candidate of collectRawCandidates(html)) {
-      const u = absoluteUrl(decode(candidate.value));
-      if (!u) continue;
-      if (isLikelyMedia(u)) {
-        addUrl(direct, seen, u, pageUrl);
-      } else if (candidate.nested && depth < 4 && isUsefulNested(u)) {
-        nested.push(u);
+      const raw = decode(candidate.value);
+      const unwrapped = unwrapPlayer(raw);
+      const values = unwrapped ? [unwrapped, raw] : [raw];
+      for (const value of values) {
+        const u = absoluteUrl(value);
+        if (!u) continue;
+        if (isLikelyMedia(u)) addUrl(direct, seen, u, pageUrl);
+        else if (candidate.nested && depth < 4 && isUsefulNested(u)) nested.push(u);
       }
     }
-    for (const nestedUrl of [...new Set(nested)].slice(0, 12)) {
+    for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
       try {
         const more = yield extractStreams(nestedUrl, depth + 1, visited);
         for (const stream of more) {
