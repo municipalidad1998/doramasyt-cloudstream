@@ -1,0 +1,1 @@
+CloudStream provider manifest placeholder. The plugin module uses the CloudStream build system.
