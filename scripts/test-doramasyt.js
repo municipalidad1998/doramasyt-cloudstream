@@ -32,6 +32,14 @@ async function inspectPage(url) {
   return html;
 }
 
+async function inspectScript(url) {
+  const response = await fetch(url, { headers: HEADERS });
+  const text = await response.text();
+  console.log(`[SCRIPT] ${url} HTTP=${response.status} bytes=${text.length}`);
+  const matches = text.match(/.{0,180}(?:CryptoJS|AES|decrypt|data-player|reproductor|secret|token|fetch\(|axios|\/ajax\/).{0,300}/gi) || [];
+  console.log(`[SCRIPT] matches=${JSON.stringify(matches.slice(0, 30))}`);
+}
+
 async function main() {
   const tmdbId = process.argv[2] || "291496";
   const mediaType = process.argv[3] || "tv";
@@ -42,6 +50,7 @@ async function main() {
   await inspectPage("https://www.doramasyt.com/");
   await inspectPage("https://www.doramasyt.com/dorama/our-sticky-love-sub-espanol");
   await inspectPage("https://www.doramasyt.com/ver/our-sticky-love-episodio-1");
+  await inspectScript("https://www.doramasyt.com/js/capitulo.js?v=1775974031");
 
   const streams = await getStreams(tmdbId, mediaType, season, episode);
   console.log(`[TEST] STREAM_COUNT=${streams.length}`);
