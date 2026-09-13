@@ -60,7 +60,7 @@ async function postForm(url, body, referer) {
       "Referer": referer,
       "X-Requested-With": "XMLHttpRequest"
     },
-    body: body,
+    body,
     json: true
   });
 }
@@ -90,15 +90,14 @@ async function findEpisodeFromApi(detailUrl, episode) {
   const pages = Math.max(1, Math.ceil(total / perPage));
   const paginateUrl = absoluteUrl(first.paginate_url || api.ajax);
 
+  // The first AJAX response is metadata (eps/perpage/paginate_url).
+  // The actual episode URLs are returned by the pagination endpoint, including page 1.
   for (let page = 1; page <= pages; page++) {
-    let data = first;
-    if (page > 1) {
-      data = await postForm(
-        paginateUrl,
-        "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
-        api.referer
-      );
-    }
+    const data = await postForm(
+      paginateUrl,
+      "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
+      api.referer
+    );
     const caps = data && Array.isArray(data.caps) ? data.caps : [];
     for (const cap of caps) {
       if (Number(cap.episodio) === Number(episode) && cap.url) {
@@ -124,11 +123,11 @@ export async function searchDorama(title) {
       if (candidates.length) return candidates[0].href;
       if (!best) {
         const fallback = anchors.filter(a => titleMatch(a.text, q));
-        if (fallback.length) best = fallback[0].href;
+        if (fallback.length) best = fallback[0];
       }
     } catch (_) {}
   }
-  if (best) return best;
+  if (best) return best.href;
   throw new Error("DoramaYT title not found: " + title);
 }
 
@@ -142,14 +141,13 @@ export async function getEpisodeUrl(detailUrl, title, episode) {
   }
 
   const queries = aliases(title);
-  for (const q of queries) {
-    try {
-      const html = await request(BASE_URL + "/emision");
-      const anchors = parseAnchors(html);
-      const wanted = new RegExp("(?:cap[ií]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
-      const found = anchors.find(a => titleMatch(a.text, q) && wanted.test(a.text));
-      if (found) return found.href;
-    } catch (_) {}
-  }
+  try {
+    const html = await request(BASE_URL + "/emision");
+    const anchors = parseAnchors(html);
+    const wanted = new RegExp("(?:cap[ií]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
+    const found = anchors.find(a => queries.some(q => titleMatch(a.text, q)) && wanted.test(a.text));
+    if (found) return found.href;
+  } catch (_) {}
+
   return detailUrl;
 }
