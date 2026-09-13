@@ -14,7 +14,7 @@ export async function request(url, options = {}) {
     headers: { ...HEADERS, ...(options.headers || {}) },
     body: options.body
   });
-  if (!response.ok) throw new Error("HTTP " + response.status);
+  if (!response.ok) throw new Error("HTTP " + response.status + " for " + url);
   return options.json ? response.json() : response.text();
 }
 
@@ -28,10 +28,15 @@ export function clean(value) {
     .trim();
 }
 
-export function absoluteUrl(href) {
+export function absoluteUrl(href, base = BASE_URL) {
   if (!href) return "";
-  if (href.startsWith("//")) return "https:" + href;
-  if (/^https?:\/\//i.test(href)) return href;
-  if (href.startsWith("/")) return BASE_URL + href;
-  return BASE_URL + "/" + href;
+  const value = String(href).trim();
+  try {
+    return new URL(value, base).toString();
+  } catch (_) {
+    if (value.startsWith("//")) return "https:" + value;
+    if (/^https?:\/\//i.test(value)) return value;
+    if (value.startsWith("/")) return BASE_URL + value;
+    return BASE_URL + "/" + value;
+  }
 }
