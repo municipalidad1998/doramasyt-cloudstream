@@ -18,6 +18,17 @@ function aliases(title) {
   return [...new Set(out)];
 }
 
+function episodeNumber(value) {
+  const text = String(value == null ? "" : value).trim();
+  if (!text) return 0;
+  const direct = Number(text);
+  if (Number.isFinite(direct) && direct > 0) return Math.floor(direct);
+  const match = text.match(/(?:S\d+\s*)?E\s*(\d+)|(?:episode|episodio|cap[ií]tulo|ep)\s*\.?\s*(\d+)/i);
+  if (match) return Number(match[1] || match[2]);
+  const numbers = text.match(/\d+/g);
+  return numbers && numbers.length ? Number(numbers[numbers.length - 1]) : 0;
+}
+
 export async function getTmdbTitle(tmdbId, mediaType) {
   const type = mediaType === "tv" || mediaType === "series" ? "tv" : "movie";
   const html = await request("https://www.themoviedb.org/" + type + "/" + tmdbId);
@@ -50,6 +61,15 @@ function titleMatch(text, title) {
   return words.length > 1 && hits >= Math.max(2, words.length - 1);
 }
 
+function episodeMatch(item, title, episode) {
+  const ep = episodeNumber(episode);
+  if (!ep) return false;
+  const text = normalize(item.text + " " + item.href);
+  if (!titleMatch(text, title)) return false;
+  const wanted = new RegExp("(?:cap[ií]tulo|episodio|episode|ep|e|x)[^0-9]{0,10}0*" + ep + "(?:\\D|$)", "i");
+  return wanted.test(text) || new RegExp("(?:1x|s0*1e|e)0*" + ep + "(?:\\D|$)", "i").test(text);
+}
+
 async function postForm(url, body, referer) {
   return request(url, {
     method: "POST",
@@ -66,23 +86,28 @@ async function postForm(url, body, referer) {
 }
 
 function extractEpisodeApi(html, detailUrl) {
-  const tokenMatch = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i);
+  const tokenMatch = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i) ||
+    html.match(/name=["']csrf-token["'][^>]+content=["']([^"']+)/i);
   const ajaxMatch = html.match(/class=["'][^"']*caplist[^"']*["'][^>]+data-ajax=["']([^"']+)/i) ||
-    html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i);
-  if (!tokenMatch || !ajaxMatch) return null;
+    html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i) ||
+    html.match(/data-ajax=["']([^"']+)["']/i);
+  if (!ajaxMatch) return null;
   return {
-    token: tokenMatch[1],
+    token: tokenMatch ? tokenMatch[1] : "",
     ajax: absoluteUrl(ajaxMatch[1]),
     referer: detailUrl
   };
 }
 
 async function findEpisodeFromApi(detailUrl, episode) {
+  const wantedEpisode = episodeNumber(episode);
+  if (!wantedEpisode) return null;
   const html = await request(detailUrl);
   const api = extractEpisodeApi(html, detailUrl);
   if (!api) return null;
 
-  const first = await postForm(api.ajax, "_token=" + encodeURIComponent(api.token), api.referer);
+  const body = api.token ? "_token=" + encodeURIComponent(api.token) : "";
+  const first = await postForm(api.ajax, body, api.referer);
   if (!first || typeof first !== "object") return null;
 
   const total = Array.isArray(first.eps) ? first.eps.length : 0;
@@ -90,21 +115,46 @@ async function findEpisodeFromApi(detailUrl, episode) {
   const pages = Math.max(1, Math.ceil(total / perPage));
   const paginateUrl = absoluteUrl(first.paginate_url || api.ajax);
 
-  // The first AJAX response is metadata (eps/perpage/paginate_url).
-  // The actual episode URLs are returned by the pagination endpoint, including page 1.
   for (let page = 1; page <= pages; page++) {
-    const data = await postForm(
-      paginateUrl,
-      "_token=" + encodeURIComponent(api.token) + "&p=" + encodeURIComponent(page),
-      api.referer
-    );
+    const pageBody = (api.token ? "_token=" + encodeURIComponent(api.token) + "&" : "") + "p=" + encodeURIComponent(page);
+    const data = await postForm(paginateUrl, pageBody, api.referer);
     const caps = data && Array.isArray(data.caps) ? data.caps : [];
     for (const cap of caps) {
-      if (Number(cap.episodio) === Number(episode) && cap.url) {
-        return absoluteUrl(cap.url);
-      }
+      if (episodeNumber(cap.episodio) === wantedEpisode && cap.url) return absoluteUrl(cap.url);
     }
   }
+  return null;
+}
+
+async function findEpisodeFromSearch(title, episode) {
+  const queries = aliases(title);
+  for (const q of queries) {
+    try {
+      const html = await request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
+      const anchors = parseAnchors(html);
+      const matches = anchors.filter(a => episodeMatch(a, q, episode));
+      if (matches.length) {
+        matches.sort((a, b) => {
+          const aEpisode = episodeNumber(a.text + " " + a.href);
+          const bEpisode = episodeNumber(b.text + " " + b.href);
+          return Math.abs(aEpisode - episodeNumber(episode)) - Math.abs(bEpisode - episodeNumber(episode));
+        });
+        return matches[0].href;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function findEpisodeFromEmission(title, episode) {
+  const wanted = episodeNumber(episode);
+  if (!wanted) return null;
+  try {
+    const html = await request(BASE_URL + "/emision");
+    const anchors = parseAnchors(html);
+    const matches = anchors.filter(a => episodeMatch(a, title, wanted));
+    if (matches.length) return matches[0].href;
+  } catch (_) {}
   return null;
 }
 
@@ -132,22 +182,29 @@ export async function searchDorama(title) {
 }
 
 export async function getEpisodeUrl(detailUrl, title, episode) {
-  if (!episode) return detailUrl;
+  const wanted = episodeNumber(episode);
+  if (!wanted) return detailUrl;
+
   try {
-    const apiUrl = await findEpisodeFromApi(detailUrl, episode);
+    const apiUrl = await findEpisodeFromApi(detailUrl, wanted);
     if (apiUrl) return apiUrl;
   } catch (error) {
     console.error("[DoramaYT] Episode API: " + error.message);
   }
 
-  const queries = aliases(title);
   try {
-    const html = await request(BASE_URL + "/emision");
-    const anchors = parseAnchors(html);
-    const wanted = new RegExp("(?:cap[ií]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + Number(episode) + "(?:\\D|$)", "i");
-    const found = anchors.find(a => queries.some(q => titleMatch(a.text, q)) && wanted.test(a.text));
-    if (found) return found.href;
-  } catch (_) {}
+    const searchUrl = await findEpisodeFromSearch(title, wanted);
+    if (searchUrl) return searchUrl;
+  } catch (error) {
+    console.error("[DoramaYT] Episode search: " + error.message);
+  }
+
+  try {
+    const emissionUrl = await findEpisodeFromEmission(title, wanted);
+    if (emissionUrl) return emissionUrl;
+  } catch (error) {
+    console.error("[DoramaYT] Emission fallback: " + error.message);
+  }
 
   return detailUrl;
 }
