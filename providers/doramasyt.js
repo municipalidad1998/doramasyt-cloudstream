@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:46:31.027Z
+ * Generated: 2026-09-13T23:52:32.479Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -404,7 +404,6 @@ function addUrl(out, seen, url, referer, title = "Servidor") {
 }
 function unwrapPlayer(url) {
   const value = decode(url);
-  if (!/\/reproductor\?url=/i.test(value)) return "";
   const match = value.match(/[?&]url=([^#]+)$/i);
   if (!match) return "";
   try {
@@ -416,6 +415,16 @@ function unwrapPlayer(url) {
 function collectRawCandidates(html) {
   const out = [];
   let m;
+  const playerKeyMatch = html.match(/<[^>]*class=["'][^"']*player[^"']*["'][^>]*data-key=["']([^"']+)["']/i) || html.match(/<[^>]*data-key=["']([^"']+)["'][^>]*class=["'][^"']*player/i);
+  const playerKey = playerKeyMatch ? playerKeyMatch[1] : "";
+  if (playerKey) {
+    const buttons = /<button[^>]*data-player=["']([^"']+)["'][^>]*data-usa-api=["']([^"']+)["'][^>]*>([\s\S]*?)<\/button>/gi;
+    while (m = buttons.exec(html)) {
+      const label = (m[3] || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "Servidor";
+      const playerUrl = m[2] === "1" ? playerKey + m[1] + "&player=" + encodeURIComponent(label) : m[1];
+      out.push({ value: playerUrl, nested: true, player: true, title: label });
+    }
+  }
   const attrs = /(?:src|file|source|data-src|data-file|data-video|data-embed|data-url)=\s*["']([^"']+)["']/gi;
   while (m = attrs.exec(html)) out.push({ value: m[1], nested: true });
   const players = /data-player=\s*["']([^"']+)["']/gi;
@@ -444,6 +453,11 @@ function collectRawCandidates(html) {
   return out;
 }
 function isLikelyMedia(url) {
+  try {
+    const parsed = new URL(url);
+    if (/(?:streamtape\.com|mp4upload\.com|savefiles\.com|bysekoze\.com)/i.test(parsed.hostname) && /(?:\/e\/|\/embed[-/])/i.test(parsed.pathname)) return false;
+  } catch (_) {
+  }
   return /\.(m3u8|mpd|mp4|mkv|webm|m4v|mov|ts|avi|flv|3gp|mpeg|mpg|ogv)(?:$|[?#])/i.test(url) || /(?:\.m3u8\?|\.mpd\?|manifest(?:\.m3u8)?|playlist(?:\.m3u8)?|master\.txt)/i.test(url);
 }
 function isUsefulNested(url) {
@@ -454,7 +468,7 @@ function isUsefulNested(url) {
     if (!host) return false;
     if (/(googletagmanager|google-analytics|doubleclick|facebook\.com|facebook\.net|gstatic\.com|cloudflareinsights)/i.test(host)) return false;
     if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf)(?:$|[?#])/i.test(url)) return false;
-    const knownHost = /(filemoon|streamwish|strwish|wishembed|wishfast|voe|dood|ds2play|filelions|mixdrop|streamtape|streamsb|uqload|vidmoly|vidhide|vidplay|vidsonic|ok\.ru|okru|embed|earnvid|lulu|mp4upload|streamable)/i.test(host);
+    const knownHost = /(filemoon|streamwish|strwish|wishembed|wishfast|voe|dood|ds2play|filelions|mixdrop|streamtape|streamsb|uqload|vidmoly|vidhide|vidplay|vidsonic|ok\.ru|okru|embed|earnvid|lulu|mp4upload|savefiles|streamable)/i.test(host);
     const playerPath = /(?:\/embed(?:\/|$)|\/player(?:\/|$)|\/e\/|\/f\/|\/d\/|\/video\/|\/watch\/|\/stream\/|\/play\/)/i.test(path);
     return knownHost || playerPath;
   } catch (_) {
@@ -474,11 +488,30 @@ function resolveDood(url, referer) {
       const token = passUrl.split("/").pop();
       const base = yield request(passUrl, { headers: { Referer: embedUrl } });
       if (!base || !/^https?:\/\//i.test(base.trim())) return [];
-      const hash = Math.random().toString(36).slice(2, 12);
-      const streamUrl = base.trim() + hash + "?token=" + token;
+      const streamUrl = base.trim() + Math.random().toString(36).slice(2, 12) + "?token=" + token;
       return [{ url: streamUrl, referer: host + "/", title: "DoodStream" }];
     } catch (error) {
       console.error("[DoramaYT] Dood resolver: " + error.message);
+      return [];
+    }
+  });
+}
+function resolveStreamTape(url, referer) {
+  return __async(this, null, function* () {
+    if (!/streamtape\./i.test(url)) return [];
+    try {
+      const html = yield request(url, { headers: { Referer: referer } });
+      const bot = html.match(/id=["']botlink["'][^>]*>([^<]+)<\/[^>]+>/i);
+      const value = bot ? bot[1].trim() : (html.match(/botlink['\"]\)\.innerHTML\s*=\s*["']([^"']+)/i) || [])[1] || "";
+      if (!value) return [];
+      let stream = value;
+      if (stream.startsWith("//")) stream = "https:" + stream;
+      else if (stream.startsWith("/")) stream = "https://streamtape.com" + stream;
+      if (!/^https?:\/\//i.test(stream)) return [];
+      if (!/[?&]stream=1(?:&|$)/i.test(stream)) stream += (stream.includes("?") ? "&" : "?") + "stream=1";
+      return [{ url: stream, referer: url, title: "StreamTape" }];
+    } catch (error) {
+      console.error("[DoramaYT] StreamTape resolver: " + error.message);
       return [];
     }
   });
@@ -488,15 +521,9 @@ function extractStreams(_0) {
     if (depth > 5 || visited.has(pageUrl)) return [];
     visited.add(pageUrl);
     const knownDood = yield resolveDood(pageUrl, parentReferer);
-    if (knownDood.length) {
-      return knownDood.map((item) => ({
-        name: "DoramaYT",
-        title: item.title,
-        url: item.url,
-        quality: /1080/i.test(item.url) ? "1080p" : "Auto",
-        headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: item.referer })
-      }));
-    }
+    if (knownDood.length) return knownDood.map((item) => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: item.referer }) }));
+    const knownTape = yield resolveStreamTape(pageUrl, parentReferer);
+    if (knownTape.length) return knownTape.map((item) => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: item.referer }) }));
     const html = yield request(pageUrl, { headers: { Referer: parentReferer } });
     const direct = [];
     const nested = [];
@@ -517,7 +544,7 @@ function extractStreams(_0) {
       for (const value of values) {
         const u = absoluteUrl(value, pageUrl);
         if (!u) continue;
-        if (isLikelyMedia(u)) addUrl(direct, seen, u, pageUrl);
+        if (isLikelyMedia(u)) addUrl(direct, seen, u, pageUrl, candidate.title || "Servidor");
         else if (candidate.nested && depth < 5 && isUsefulNested(u)) nested.push(u);
       }
     }
