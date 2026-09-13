@@ -1,0 +1,45 @@
+name: Build Nuvio DoramaYT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/doramasyt/**'
+      - 'build.js'
+      - 'package.json'
+      - '.github/workflows/build-nuvio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build DoramaYT
+        run: node build.js doramasyt
+
+      - name: Commit generated provider
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add providers/doramasyt.js
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+          else
+            git commit -m "Build DoramaYT Nuvio provider"
+            git push
+          fi
