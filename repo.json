@@ -1,0 +1,8 @@
+{
+  "name": "Municipalidad DoramaYT",
+  "description": "Repositorio de extensiones CloudStream de municipalidad1998",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/municipalidad1998/doramasyt-cloudstream/builds/plugins.json"
+  ]
+}
