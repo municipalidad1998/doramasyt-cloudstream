@@ -5,7 +5,9 @@ export async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const title = await getTmdbTitle(tmdbId, mediaType);
     const detail = await searchDorama(title);
-    const pageUrl = mediaType === "tv" && episode ? await getEpisodeUrl(detail, episode) : detail;
+    const pageUrl = mediaType === "tv" && episode
+      ? await getEpisodeUrl(detail, title, episode)
+      : detail;
     const streams = await extractStreams(pageUrl);
     return streams;
   } catch (error) {
