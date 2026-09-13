@@ -1,5 +1,6 @@
 import { request, clean, absoluteUrl, BASE_URL } from "./http.js";
 
+// Episode discovery supports numeric and S01E01-style Nuvio episode values.
 function normalize(value) {
   return clean(value).toLowerCase().replace(/[^a-z0-9áéíóúüñ]+/gi, " ").trim();
 }
