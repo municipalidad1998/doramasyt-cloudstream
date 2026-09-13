@@ -1,18 +1,18 @@
 {
   "id": "municipalidad-doramasyt",
   "name": "Municipalidad DoramaYT",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "scrapers": [
     {
       "id": "doramasyt",
       "name": "DoramaYT",
-      "description": "Dramas asiáticos y series de DoramaYT",
-      "version": "1.0.2",
+      "description": "Dramas asiáticos y series de DoramaYT con múltiples formatos de vídeo",
+      "version": "1.0.3",
       "author": "municipalidad1998",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/doramasyt.js",
       "enabled": true,
-      "formats": ["mp4", "m3u8"],
+      "formats": ["m3u8", "mp4", "mkv", "webm", "m4v", "mov", "ts", "mpd", "avi", "flv"],
       "contentLanguage": ["es"],
       "supportsExternalPlayer": true
     }
