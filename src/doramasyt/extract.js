@@ -12,16 +12,17 @@ function decode(value) {
 
 function base64ToText(value) {
   try {
-    const input = String(value || "").replace(/\s/g, "");
-    if (!input || !/^[A-Za-z0-9+/=_-]+$/.test(input)) return "";
-    if (typeof atob === "function") {
-      const binary = atob(input.replace(/-/g, "+").replace(/_/g, "/"));
-      let out = "";
-      for (let i = 0; i < binary.length; i++) out += String.fromCharCode(binary.charCodeAt(i));
-      try { return decodeURIComponent(escape(out)); } catch (_) { return out; }
-    }
-  } catch (_) {}
-  return "";
+    let input = String(value || "").replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!input || !/^[A-Za-z0-9+/=]+$/.test(input)) return "";
+    while (input.length % 4) input += "=";
+    if (typeof atob !== "function") return "";
+    const binary = atob(input);
+    let out = "";
+    for (let i = 0; i < binary.length; i++) out += String.fromCharCode(binary.charCodeAt(i));
+    try { return decodeURIComponent(escape(out)); } catch (_) { return out; }
+  } catch (_) {
+    return "";
+  }
 }
 
 function addUrl(out, seen, url, referer, title = "Servidor") {
@@ -50,6 +51,7 @@ function collectRawCandidates(html) {
   while ((m = players.exec(html))) {
     const decoded = base64ToText(m[1]);
     if (decoded) out.push({ value: decoded, nested: true });
+    else out.push({ value: m[1], nested: true });
   }
 
   const iframe = /<iframe[^>]+src=["']([^"']+)["']/gi;
