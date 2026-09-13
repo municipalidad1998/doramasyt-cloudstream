@@ -1,5 +1,24 @@
 import { request, clean, absoluteUrl } from "./http.js";
 
+const BASE = "https://www.doramasyt.com";
+
+function normalize(value) {
+  return clean(value).toLowerCase().replace(/[^a-z0-9áéíóúüñ]+/gi, " ").trim();
+}
+
+function slug(value) {
+  const n = normalize(value);
+  return (n.normalize ? n.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : n).replace(/[^a-z0-9]+/g, "-");
+}
+
+function aliases(title) {
+  const out = [title];
+  const n = normalize(title);
+  if (n === "shine on me") out.push("tan resplandeciente como el sol");
+  if (n === "tan resplandeciente como el sol") out.push("shine on me");
+  return out;
+}
+
 export async function getTmdbTitle(tmdbId, mediaType) {
   const type = mediaType === "tv" || mediaType === "series" ? "tv" : "movie";
   const html = await request("https://www.themoviedb.org/" + type + "/" + tmdbId);
@@ -10,41 +29,91 @@ export async function getTmdbTitle(tmdbId, mediaType) {
   return result;
 }
 
-export async function searchDorama(title) {
-  const html = await request("https://www.doramasyt.com/?s=" + encodeURIComponent(title));
-  const links = [];
-  const seen = new Set();
-  const re = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+function parseAnchors(html) {
+  const result = [];
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m = re.exec(html))) {
-    const href = absoluteUrl(m[1]).split("?")[0].split("#")[0];
-    if (!href.startsWith("https://www.doramasyt.com/")) continue;
+    const href = absoluteUrl(m[1]).split("#")[0];
+    if (!href.startsWith(BASE + "/")) continue;
     if (/\/(category|tag|page|author|feed|wp-|login|register|contacto|dmca)\//i.test(href)) continue;
-    if (seen.has(href)) continue;
-    seen.add(href);
-    const last = href.replace(/\/$/, "").split("/").pop() || "";
-    if (last.length > 2) links.push({ href, slug: last.toLowerCase() });
+    result.push({ href, text: clean(m[2]) });
   }
-  if (!links.length) throw new Error("DoramaYT title not found");
-  const wanted = title.toLowerCase().replace(/[^a-z0-9]+/gi, " ").trim();
-  links.sort((a,b) => {
-    const score = (x) => x.slug === wanted.replace(/\s+/g,"-") ? 0 : x.slug.includes(wanted.replace(/\s+/g,"-")) ? 1 : 5;
-    return score(a.slug)-score(b.slug);
-  });
-  return links[0].href;
+  return result;
 }
 
-export async function getEpisodeUrl(detailUrl, episode) {
-  if (!episode) return detailUrl;
-  const html = await request(detailUrl);
-  const re = /href=["']([^"']+)["']/gi;
-  let m;
-  const candidates = [];
-  while ((m = re.exec(html))) candidates.push(absoluteUrl(m[1]));
-  for (const href of candidates) {
-    const tail = href.split("?")[0].split("/").pop() || "";
-    if (new RegExp("(?:episode|episodio|capitulo|capítulo|ep)[^0-9]{0,8}0*" + episode + "(?:[^0-9]|$)","i").test(tail)) return href;
-    if (new RegExp("(^|[^0-9])0*" + episode + "([^0-9]|$)").test(tail) && /ver|episode|episodio|capitulo|watch/i.test(href)) return href;
+function titleMatch(text, title) {
+  const a = normalize(text);
+  const b = normalize(title);
+  if (!a || !b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  const words = b.split(" ").filter(w => w.length > 2);
+  const hits = words.filter(w => a.includes(w)).length;
+  return words.length > 1 && hits >= Math.max(2, words.length - 1);
+}
+
+export async function searchEpisode(title, episode) {
+  const episodeNumber = Number(episode);
+  const queries = aliases(title);
+
+  async function scan(url) {
+    const html = await request(url);
+    const anchors = parseAnchors(html);
+    const wantedEpisode = new RegExp("(?:cap[ií]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + episodeNumber + "(?:\\D|$)", "i");
+    const exact = anchors.filter(a => titleMatch(a.text, title) && wantedEpisode.test(a.text));
+    if (exact.length) return exact[0].href;
+    const byNumber = anchors.filter(a => wantedEpisode.test(a.text) || new RegExp("(?:^|[^0-9])0*" + episodeNumber + "(?:[^0-9]|$)").test(a.text));
+    const matching = byNumber.filter(a => titleMatch(a.text, title));
+    if (matching.length) return matching[0].href;
+    return null;
   }
+
+  for (const q of queries) {
+    try {
+      const found = await scan(BASE + "/?s=" + encodeURIComponent(q));
+      if (found) return found;
+    } catch (_) {}
+  }
+  try {
+    const found = await scan(BASE + "/");
+    if (found) return found;
+  } catch (_) {}
+  return null;
+}
+
+export async function searchDorama(title) {
+  const queries = aliases(title);
+  let best = null;
+  for (const q of queries) {
+    try {
+      const html = await request(BASE + "/?s=" + encodeURIComponent(q));
+      const anchors = parseAnchors(html);
+      const candidates = anchors.filter(a => /\/dorama\//i.test(a.href));
+      candidates.sort((a, b) => {
+        const score = x => titleMatch(x.text, q) ? 0 : slug(x.href).includes(slug(q)) ? 1 : 5;
+        return score(a) - score(b);
+      });
+      if (candidates.length) return candidates[0].href;
+      if (!best) {
+        const fallback = anchors.filter(a => titleMatch(a.text, q));
+        if (fallback.length) best = fallback[0].href;
+      }
+    } catch (_) {}
+  }
+  if (best) return best;
+  throw new Error("DoramaYT title not found: " + title);
+}
+
+export async function getEpisodeUrl(detailUrl, title, episode) {
+  if (!episode) return detailUrl;
+  const fromListing = await searchEpisode(title, episode);
+  if (fromListing) return fromListing;
+  try {
+    const html = await request(detailUrl);
+    const anchors = parseAnchors(html);
+    const wantedEpisode = new RegExp("(?:cap[ií]tulo|episodio|episode|ep)[^0-9]{0,10}0*" + episode + "(?:\\D|$)", "i");
+    const candidates = anchors.filter(a => wantedEpisode.test(a.text) || wantedEpisode.test(a.href));
+    if (candidates.length) return candidates[0].href;
+  } catch (_) {}
   return detailUrl;
 }
