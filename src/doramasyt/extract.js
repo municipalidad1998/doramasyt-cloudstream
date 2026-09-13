@@ -1,7 +1,15 @@
 import { request, HEADERS, absoluteUrl } from "./http.js";
 
 function decode(value) {
-  return String(value || "").replace(/&amp;/gi, "&").replace(/&quot;|&#34;|&#x22;/gi, '"').replace(/&#39;|&#x27;/gi, "'").replace(/\\u002F/gi, "/").replace(/\\\//g, "/").trim();
+  let out = String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;|&#34;|&#x22;/gi, '"')
+    .replace(/&#39;|&#x27;/gi, "'")
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\\//g, "/")
+    .trim();
+  try { out = decodeURIComponent(out); } catch (_) {}
+  return out;
 }
 
 function base64ToText(value) {
@@ -19,7 +27,7 @@ function base64ToText(value) {
 
 function addUrl(out, seen, url, referer, title = "Servidor") {
   if (!url) return;
-  let u = decode(url);
+  let u = decode(url).replace(/["'<>),;]+$/g, "");
   if (u.startsWith("//")) u = "https:" + u;
   if (!/^https?:\/\//i.test(u) || seen.has(u)) return;
   seen.add(u);
@@ -35,7 +43,7 @@ function addUrl(out, seen, url, referer, title = "Servidor") {
 function unwrapPlayer(url) {
   const value = decode(url);
   if (!/\/reproductor\?url=/i.test(value)) return "";
-  const match = value.match(/[?&]url=(.+)$/i);
+  const match = value.match(/[?&]url=([^#]+)$/i);
   if (!match) return "";
   try { return decodeURIComponent(match[1]); } catch (_) { return match[1]; }
 }
@@ -43,10 +51,11 @@ function unwrapPlayer(url) {
 function collectRawCandidates(html) {
   const out = [];
   let m;
-  const attrs = /(?:src|href|file|source|data-src|data-file|data-video|data-embed)=["']([^"']+)["']/gi;
+
+  const attrs = /(?:src|href|file|source|data-src|data-file|data-video|data-embed|data-url)=\s*["']([^"']+)["']/gi;
   while ((m = attrs.exec(html))) out.push({ value: m[1], nested: true });
 
-  const players = /data-player=["']([^"']+)["']/gi;
+  const players = /data-player=\s*["']([^"']+)["']/gi;
   while ((m = players.exec(html))) {
     const decoded = base64ToText(m[1]);
     const player = decoded || m[1];
@@ -55,12 +64,18 @@ function collectRawCandidates(html) {
     out.push({ value: player, nested: true });
   }
 
-  const iframe = /<iframe[^>]+src=["']([^"']+)["']/gi;
+  const iframe = /<iframe[^>]+src=\s*["']([^"']+)["']/gi;
   while ((m = iframe.exec(html))) out.push({ value: m[1], nested: true });
-  const jsonish = /["'](?:file|url|src|stream|source|playlist|hls|dash)["']\s*:\s*["']([^"']+)["']/gi;
+
+  const jsonish = /["'](?:file|url|src|stream|source|playlist|hls|dash|file_url|video_url|stream_url)["']\s*:\s*["']([^"']+)["']/gi;
   while ((m = jsonish.exec(html))) out.push({ value: m[1], nested: true });
-  const jw = /(?:file|src)\s*:\s*["'](https?:\/\/[^"']+)["']/gi;
-  while ((m = jw.exec(html))) out.push({ value: m[1], nested: true });
+
+  const jsQuoted = /(?:file|src|source|stream|playlist|hls|dash)\s*[:=]\s*["'](https?:\/\/[^"']+)["']/gi;
+  while ((m = jsQuoted.exec(html))) out.push({ value: m[1], nested: true });
+
+  const mediaUrls = /https?:\\?\/\\?\/[^\s"'<>]+\.(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi;
+  while ((m = mediaUrls.exec(html))) out.push({ value: m[0], nested: false });
+
   return out;
 }
 
@@ -69,12 +84,21 @@ function isLikelyMedia(url) {
 }
 
 function isUsefulNested(url) {
-  return /(?:voe|filemoon|moonplayer|streamwish|strwish|wishembed|wishfast|dood|doodstream|ds2play|filelions|mixdrop|streamtape|ok\.ru|okru|uqload|vidmoly|vidhide|vidplay|embed|player|stream|reproductor)/i.test(url);
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (!host) return false;
+    if (/^(www\.)?doramasyt\.com$/i.test(host)) return /(?:reproductor|player|stream|video)/i.test(url);
+    if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf)(?:$|[?#])/i.test(url)) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 export async function extractStreams(pageUrl, depth = 0, visited = new Set()) {
   if (depth > 4 || visited.has(pageUrl)) return [];
   visited.add(pageUrl);
+
   const html = await request(pageUrl);
   const direct = [];
   const nested = [];
@@ -87,12 +111,15 @@ export async function extractStreams(pageUrl, depth = 0, visited = new Set()) {
     for (const value of values) {
       const u = absoluteUrl(value);
       if (!u) continue;
-      if (isLikelyMedia(u)) addUrl(direct, seen, u, pageUrl);
-      else if (candidate.nested && depth < 4 && isUsefulNested(u)) nested.push(u);
+      if (isLikelyMedia(u)) {
+        addUrl(direct, seen, u, pageUrl);
+      } else if (candidate.nested && depth < 4 && isUsefulNested(u)) {
+        nested.push(u);
+      }
     }
   }
 
-  for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
+  for (const nestedUrl of [...new Set(nested)].slice(0, 12)) {
     try {
       const more = await extractStreams(nestedUrl, depth + 1, visited);
       for (const stream of more) {
@@ -101,7 +128,10 @@ export async function extractStreams(pageUrl, depth = 0, visited = new Set()) {
           direct.push(stream);
         }
       }
-    } catch (error) { console.error("[DoramaYT] Nested extractor: " + error.message); }
+    } catch (error) {
+      console.error("[DoramaYT] Nested extractor: " + error.message);
+    }
   }
+
   return direct;
 }
