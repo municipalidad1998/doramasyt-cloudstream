@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:42:49.518Z
+ * Generated: 2026-09-13T23:44:52.302Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -216,6 +216,29 @@ function findEpisodeFromApi(detailUrl, episode) {
     return null;
   });
 }
+function findEpisodeByDeterministicUrl(detailUrl, episode) {
+  return __async(this, null, function* () {
+    const wanted = episodeNumber(episode);
+    if (!wanted) return null;
+    const match = detailUrl.match(/\/dorama\/([^/?#]+)(?:[/?#]|$)/i);
+    if (!match) return null;
+    const baseSlug = match[1].replace(/-+$/, "");
+    const candidates = [
+      BASE_URL + "/ver/" + baseSlug + "-episodio-" + wanted,
+      BASE_URL + "/ver/" + baseSlug + "-capitulo-" + wanted
+    ];
+    for (const candidate of candidates) {
+      try {
+        const html = yield request(candidate);
+        if (/<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html)) {
+          return candidate;
+        }
+      } catch (_) {
+      }
+    }
+    return null;
+  });
+}
 function findEpisodeFromSearch(title, episode) {
   return __async(this, null, function* () {
     const queries = aliases(title);
@@ -281,6 +304,12 @@ function getEpisodeUrl(detailUrl, title, episode) {
   return __async(this, null, function* () {
     const wanted = episodeNumber(episode);
     if (!wanted) return detailUrl;
+    try {
+      const deterministic = yield findEpisodeByDeterministicUrl(detailUrl, wanted);
+      if (deterministic) return deterministic;
+    } catch (error) {
+      console.error("[DoramaYT] Deterministic episode URL: " + error.message);
+    }
     try {
       const apiUrl = yield findEpisodeFromApi(detailUrl, wanted);
       if (apiUrl) return apiUrl;
