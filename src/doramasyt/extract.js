@@ -25,6 +25,48 @@ function base64ToText(value) {
   } catch (_) { return ""; }
 }
 
+// CloudStream uses JsUnpacker for many external hosts. Port the same
+// P.A.C.K.E.R. decoder so Nuvio can see URLs hidden inside eval(function(p,a,c,k,e,d)).
+function unpackPacker(script) {
+  const source = String(script || "");
+  if (!/eval\s*\(\s*function\s*\(p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,\s*[rd]\s*\)/i.test(source)) return "";
+
+  const match = source.match(/}\s*\(['"]([\s\S]*?)['"]\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*['"]([\s\S]*?)['"]\.split\(['"]\|['"]\)/i);
+  if (!match) return "";
+
+  const payload = match[1].replace(/\\'/g, "'");
+  const radix = Number(match[2]);
+  const count = Number(match[3]);
+  const symtab = match[4].split("|");
+  if (!radix || !Number.isFinite(radix) || symtab.length !== count) return "";
+
+  const alphabet62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const alphabet95 = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+  let alphabet = "";
+  if (radix > 36) {
+    if (radix <= 62) alphabet = alphabet62.slice(0, radix);
+    else if (radix <= 95) alphabet = alphabet95.slice(0, radix);
+  }
+
+  function unbase(word) {
+    if (radix <= 36) return parseInt(word, radix);
+    let value = 0;
+    for (const char of word.split("").reverse()) {
+      const digit = alphabet.indexOf(char);
+      if (digit < 0) return NaN;
+      value = value * radix + digit;
+    }
+    return value;
+  }
+
+  return payload.replace(/\b[a-zA-Z0-9_]+\b/g, (word) => {
+    const index = unbase(word);
+    return Number.isInteger(index) && index >= 0 && index < symtab.length && symtab[index]
+      ? symtab[index]
+      : word;
+  });
+}
+
 function addUrl(out, seen, url, referer, title = "Servidor") {
   if (!url) return;
   let u = decode(url).replace(/["'<>),;]+$/g, "");
@@ -76,11 +118,22 @@ function collectRawCandidates(html) {
   const mediaUrls = /https?:\\?\/\\?\/[^\s"'<>]+\.(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi;
   while ((m = mediaUrls.exec(html))) out.push({ value: m[0], nested: false });
 
+  // Parse normal and packed script bodies. Packed scripts are common on
+  // Filemoon/StreamWish-style hosts and otherwise hide the actual media URL.
+  const scripts = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+  while ((m = scripts.exec(html))) {
+    const body = m[1] || "";
+    out.push({ value: body, nested: false, script: true });
+    const unpacked = unpackPacker(body);
+    if (unpacked) out.push({ value: unpacked, nested: false, script: true });
+  }
+
   return out;
 }
 
 function isLikelyMedia(url) {
-  return /\.(m3u8|mpd|mp4|mkv|webm|m4v|mov|ts|avi|flv|3gp|mpeg|mpg|ogv)(?:$|[?#])/i.test(url) || /(?:\.m3u8\?|\.mpd\?|manifest(?:\.m3u8)?|playlist(?:\.m3u8)?)/i.test(url);
+  return /\.(m3u8|mpd|mp4|mkv|webm|m4v|mov|ts|avi|flv|3gp|mpeg|mpg|ogv)(?:$|[?#])/i.test(url) ||
+    /(?:\.m3u8\?|\.mpd\?|manifest(?:\.m3u8)?|playlist(?:\.m3u8)?|master\.txt)/i.test(url);
 }
 
 function isUsefulNested(url) {
@@ -95,33 +148,44 @@ function isUsefulNested(url) {
   }
 }
 
-export async function extractStreams(pageUrl, depth = 0, visited = new Set()) {
-  if (depth > 4 || visited.has(pageUrl)) return [];
+export async function extractStreams(pageUrl, depth = 0, visited = new Set(), parentReferer = "https://www.doramasyt.com/") {
+  if (depth > 5 || visited.has(pageUrl)) return [];
   visited.add(pageUrl);
 
-  const html = await request(pageUrl);
+  const html = await request(pageUrl, { headers: { Referer: parentReferer } });
   const direct = [];
   const nested = [];
   const seen = new Set();
 
   for (const candidate of collectRawCandidates(html)) {
     const raw = decode(candidate.value);
+    if (candidate.script) {
+      const unpacked = unpackPacker(raw);
+      if (unpacked) {
+        for (const value of [raw, unpacked]) {
+          const media = value.match(/https?:\\?\/\\?\/[^\s"'<>]+(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi) || [];
+          for (const url of media) addUrl(direct, seen, url, pageUrl, "Servidor");
+        }
+      }
+      continue;
+    }
+
     const unwrapped = unwrapPlayer(raw);
     const values = unwrapped ? [unwrapped, raw] : [raw];
     for (const value of values) {
-      const u = absoluteUrl(value);
+      const u = absoluteUrl(value, pageUrl);
       if (!u) continue;
       if (isLikelyMedia(u)) {
         addUrl(direct, seen, u, pageUrl);
-      } else if (candidate.nested && depth < 4 && isUsefulNested(u)) {
+      } else if (candidate.nested && depth < 5 && isUsefulNested(u)) {
         nested.push(u);
       }
     }
   }
 
-  for (const nestedUrl of [...new Set(nested)].slice(0, 12)) {
+  for (const nestedUrl of [...new Set(nested)].slice(0, 20)) {
     try {
-      const more = await extractStreams(nestedUrl, depth + 1, visited);
+      const more = await extractStreams(nestedUrl, depth + 1, visited, pageUrl);
       for (const stream of more) {
         if (!seen.has(stream.url)) {
           seen.add(stream.url);
