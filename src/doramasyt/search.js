@@ -1,6 +1,5 @@
 import { request, clean, absoluteUrl, BASE_URL } from "./http.js";
 
-// Episode discovery supports numeric and S01E01-style Nuvio episode values.
 function normalize(value) {
   return clean(value).toLowerCase().replace(/[^a-z0-9áéíóúüñ]+/gi, " ").trim();
 }
@@ -127,6 +126,27 @@ async function findEpisodeFromApi(detailUrl, episode) {
   return null;
 }
 
+async function findEpisodeByDeterministicUrl(detailUrl, episode) {
+  const wanted = episodeNumber(episode);
+  if (!wanted) return null;
+  const match = detailUrl.match(/\/dorama\/([^/?#]+)(?:[/?#]|$)/i);
+  if (!match) return null;
+  const baseSlug = match[1].replace(/-+$/, "");
+  const candidates = [
+    BASE_URL + "/ver/" + baseSlug + "-episodio-" + wanted,
+    BASE_URL + "/ver/" + baseSlug + "-capitulo-" + wanted
+  ];
+  for (const candidate of candidates) {
+    try {
+      const html = await request(candidate);
+      if (/<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html)) {
+        return candidate;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 async function findEpisodeFromSearch(title, episode) {
   const queries = aliases(title);
   for (const q of queries) {
@@ -185,6 +205,15 @@ export async function searchDorama(title) {
 export async function getEpisodeUrl(detailUrl, title, episode) {
   const wanted = episodeNumber(episode);
   if (!wanted) return detailUrl;
+
+  // DoramaYT exposes stable /ver/<slug>-episodio-N pages. Use this first;
+  // the AJAX pagination endpoint can return 403 to non-browser clients.
+  try {
+    const deterministic = await findEpisodeByDeterministicUrl(detailUrl, wanted);
+    if (deterministic) return deterministic;
+  } catch (error) {
+    console.error("[DoramaYT] Deterministic episode URL: " + error.message);
+  }
 
   try {
     const apiUrl = await findEpisodeFromApi(detailUrl, wanted);
