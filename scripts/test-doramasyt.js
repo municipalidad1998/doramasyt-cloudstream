@@ -10,25 +10,9 @@ async function inspectPage(url) {
   const response = await fetch(url, { headers: HEADERS });
   const html = await response.text();
   console.log(`[RAW] ${url} HTTP=${response.status} bytes=${html.length}`);
-
-  const hrefs = [];
-  const re = /href=["']([^"']+)["']/gi;
-  let m;
-  while ((m = re.exec(html))) {
-    if (/our-sticky-love|capitulo|episodio|1x1|1-1/i.test(m[1])) hrefs.push(m[1]);
-  }
-  console.log(`[RAW] matching hrefs=${JSON.stringify(hrefs.slice(0, 50))}`);
-
-  const players = [];
-  const pr = /data-player=["']([^"']+)["']/gi;
-  while ((m = pr.exec(html))) players.push(m[1]);
+  const players = [...html.matchAll(/data-player=["']([^"']+)["']/gi)].map(x => x[1]);
   console.log(`[RAW] data-player count=${players.length}`);
   if (players.length) console.log(`[RAW] first data-player=${players[0]}`);
-
-  const important = [];
-  const ir = /<(?:iframe|video|source|script)[^>]*>|(?:playother|data-player|data-video|data-embed|m3u8|mp4|filemoon|streamwish|dood|uqload|vidsonic|ok\.ru)[^<\s]*/gi;
-  while ((m = ir.exec(html))) important.push(m[0].slice(0, 500));
-  console.log(`[RAW] important=${JSON.stringify(important.slice(0, 40))}`);
   return html;
 }
 
@@ -36,8 +20,7 @@ async function inspectScript(url) {
   const response = await fetch(url, { headers: HEADERS });
   const text = await response.text();
   console.log(`[SCRIPT] ${url} HTTP=${response.status} bytes=${text.length}`);
-  const matches = text.match(/.{0,180}(?:CryptoJS|AES|decrypt|data-player|reproductor|secret|token|fetch\(|axios|\/ajax\/).{0,300}/gi) || [];
-  console.log(`[SCRIPT] matches=${JSON.stringify(matches.slice(0, 30))}`);
+  console.log(`[SCRIPT] BEGIN\n${text}\n[SCRIPT] END`);
 }
 
 async function main() {
@@ -47,8 +30,6 @@ async function main() {
   const episode = process.argv[5] ? Number(process.argv[5]) : 1;
 
   console.log(`[TEST] tmdbId=${tmdbId} type=${mediaType} season=${season} episode=${episode}`);
-  await inspectPage("https://www.doramasyt.com/");
-  await inspectPage("https://www.doramasyt.com/dorama/our-sticky-love-sub-espanol");
   await inspectPage("https://www.doramasyt.com/ver/our-sticky-love-episodio-1");
   await inspectScript("https://www.doramasyt.com/js/capitulo.js?v=1775974031");
 
