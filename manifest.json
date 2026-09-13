@@ -1,13 +1,13 @@
 {
   "id": "municipalidad-doramasyt",
   "name": "Municipalidad DoramaYT",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "scrapers": [
     {
       "id": "doramasyt",
       "name": "DoramaYT",
       "description": "Dramas asiáticos y series de DoramaYT con múltiples formatos de vídeo",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "author": "municipalidad1998",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/doramasyt.js",
