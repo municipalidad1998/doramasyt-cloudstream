@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-13T23:36:02.840Z
+ * Generated: 2026-09-13T23:42:35.183Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -80,19 +80,24 @@ function request(_0) {
       headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {}),
       body: options.body
     });
-    if (!response.ok) throw new Error("HTTP " + response.status);
+    if (!response.ok) throw new Error("HTTP " + response.status + " for " + url);
     return options.json ? response.json() : response.text();
   });
 }
 function clean(value) {
   return String(value || "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 }
-function absoluteUrl(href) {
+function absoluteUrl(href, base = BASE_URL) {
   if (!href) return "";
-  if (href.startsWith("//")) return "https:" + href;
-  if (/^https?:\/\//i.test(href)) return href;
-  if (href.startsWith("/")) return BASE_URL + href;
-  return BASE_URL + "/" + href;
+  const value = String(href).trim();
+  try {
+    return new URL(value, base).toString();
+  } catch (_) {
+    if (value.startsWith("//")) return "https:" + value;
+    if (/^https?:\/\//i.test(value)) return value;
+    if (value.startsWith("/")) return BASE_URL + value;
+    return BASE_URL + "/" + value;
+  }
 }
 
 // src/doramasyt/search.js
