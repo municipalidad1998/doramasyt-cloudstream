@@ -92,11 +92,7 @@ function extractEpisodeApi(html, detailUrl) {
     html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i) ||
     html.match(/data-ajax=["']([^"']+)["']/i);
   if (!ajaxMatch) return null;
-  return {
-    token: tokenMatch ? tokenMatch[1] : "",
-    ajax: absoluteUrl(ajaxMatch[1]),
-    referer: detailUrl
-  };
+  return { token: tokenMatch ? tokenMatch[1] : "", ajax: absoluteUrl(ajaxMatch[1]), referer: detailUrl };
 }
 
 async function findEpisodeFromApi(detailUrl, episode) {
@@ -136,35 +132,37 @@ async function findEpisodeByDeterministicUrl(detailUrl, episode) {
     BASE_URL + "/ver/" + baseSlug + "-episodio-" + wanted,
     BASE_URL + "/ver/" + baseSlug + "-capitulo-" + wanted
   ];
-  for (const candidate of candidates) {
+  const results = await Promise.all(candidates.map(async candidate => {
     try {
       const html = await request(candidate);
-      if (/<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html)) {
-        return candidate;
-      }
-    } catch (_) {}
-  }
-  return null;
+      return /<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html) ? candidate : null;
+    } catch (_) {
+      return null;
+    }
+  }));
+  return results.find(Boolean) || null;
 }
 
 async function findEpisodeFromSearch(title, episode) {
   const queries = aliases(title);
-  for (const q of queries) {
+  const results = await Promise.all(queries.map(async q => {
     try {
       const html = await request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
-      const anchors = parseAnchors(html);
-      const matches = anchors.filter(a => episodeMatch(a, q, episode));
-      if (matches.length) {
-        matches.sort((a, b) => {
-          const aEpisode = episodeNumber(a.text + " " + a.href);
-          const bEpisode = episodeNumber(b.text + " " + b.href);
-          return Math.abs(aEpisode - episodeNumber(episode)) - Math.abs(bEpisode - episodeNumber(episode));
-        });
-        return matches[0].href;
-      }
-    } catch (_) {}
-  }
-  return null;
+      const matches = parseAnchors(html).filter(a => episodeMatch(a, q, episode));
+      return matches;
+    } catch (_) {
+      return [];
+    }
+  }));
+  const matches = results.flat();
+  if (!matches.length) return null;
+  matches.sort((a, b) => {
+    const wanted = episodeNumber(episode);
+    const aEpisode = episodeNumber(a.text + " " + a.href);
+    const bEpisode = episodeNumber(b.text + " " + b.href);
+    return Math.abs(aEpisode - wanted) - Math.abs(bEpisode - wanted);
+  });
+  return matches[0].href;
 }
 
 async function findEpisodeFromEmission(title, episode) {
@@ -181,24 +179,34 @@ async function findEpisodeFromEmission(title, episode) {
 
 export async function searchDorama(title) {
   const queries = aliases(title);
-  let best = null;
-  for (const q of queries) {
+  const results = await Promise.all(queries.map(async q => {
     try {
       const html = await request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
       const anchors = parseAnchors(html);
       const candidates = anchors.filter(a => /\/dorama\//i.test(a.href));
-      candidates.sort((a, b) => {
-        const score = x => titleMatch(x.text, q) ? 0 : slug(x.href).includes(slug(q)) ? 1 : 5;
-        return score(a) - score(b);
-      });
-      if (candidates.length) return candidates[0].href;
-      if (!best) {
-        const fallback = anchors.filter(a => titleMatch(a.text, q));
-        if (fallback.length) best = fallback[0];
-      }
-    } catch (_) {}
+      const fallback = anchors.filter(a => titleMatch(a.text, q));
+      return { query: q, candidates, fallback };
+    } catch (_) {
+      return { query: q, candidates: [], fallback: [] };
+    }
+  }));
+
+  let best = null;
+  for (const result of results) {
+    const candidates = result.candidates;
+    candidates.sort((a, b) => {
+      const score = x => titleMatch(x.text, result.query) ? 0 : slug(x.href).includes(slug(result.query)) ? 1 : 5;
+      return score(a) - score(b);
+    });
+    if (candidates.length) {
+      if (!best || candidates[0] && titleMatch(candidates[0].text, title)) best = candidates[0];
+    }
   }
   if (best) return best.href;
+
+  for (const result of results) {
+    if (result.fallback.length) return result.fallback[0].href;
+  }
   throw new Error("DoramaYT title not found: " + title);
 }
 
@@ -206,8 +214,7 @@ export async function getEpisodeUrl(detailUrl, title, episode) {
   const wanted = episodeNumber(episode);
   if (!wanted) return detailUrl;
 
-  // DoramaYT exposes stable /ver/<slug>-episodio-N pages. Use this first;
-  // the AJAX pagination endpoint can return 403 to non-browser clients.
+  // Stable /ver/<slug>-episodio-N pages are the fastest route.
   try {
     const deterministic = await findEpisodeByDeterministicUrl(detailUrl, wanted);
     if (deterministic) return deterministic;
