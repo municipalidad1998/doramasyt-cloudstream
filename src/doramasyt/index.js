@@ -1,5 +1,6 @@
 import { getTmdbTitle, searchDorama, getEpisodeUrl } from "./search.js";
 import { extractStreams } from "./extract.js";
+import { prepareStreams } from "./playback.js";
 
 function normalizeMediaType(mediaType) {
   const type = String(mediaType || "").toLowerCase();
@@ -18,7 +19,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       ? await getEpisodeUrl(detail, title, episode)
       : detail;
 
-    return await extractStreams(pageUrl);
+    const streams = await extractStreams(pageUrl);
+    return prepareStreams(streams);
   } catch (error) {
     console.error("[DoramaYT] " + error.message);
     return [];
