@@ -166,12 +166,24 @@ async function resolveStreamTape(url, referer) {
   } catch (error) { console.error("[DoramaYT] StreamTape resolver: " + error.message); return []; }
 }
 
+async function extractNested(nestedUrl, depth, visited, referer) {
+  try {
+    return await extractStreams(nestedUrl, depth + 1, visited, referer);
+  } catch (error) {
+    console.error("[DoramaYT] Nested extractor: " + error.message);
+    return [];
+  }
+}
+
 export async function extractStreams(pageUrl, depth = 0, visited = new Set(), parentReferer = "https://www.doramasyt.com/") {
   if (depth > 5 || visited.has(pageUrl)) return [];
   visited.add(pageUrl);
-  const knownDood = await resolveDood(pageUrl, parentReferer);
+
+  // Resolve known hosts immediately; these requests are independent from other servers.
+  const knownDoodPromise = resolveDood(pageUrl, parentReferer);
+  const knownTapePromise = resolveStreamTape(pageUrl, parentReferer);
+  const [knownDood, knownTape] = await Promise.all([knownDoodPromise, knownTapePromise]);
   if (knownDood.length) return knownDood.map(item => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: { ...HEADERS, Referer: item.referer } }));
-  const knownTape = await resolveStreamTape(pageUrl, parentReferer);
   if (knownTape.length) return knownTape.map(item => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: { ...HEADERS, Referer: item.referer } }));
 
   const html = await request(pageUrl, { headers: { Referer: parentReferer } });
@@ -197,11 +209,19 @@ export async function extractStreams(pageUrl, depth = 0, visited = new Set(), pa
       else if (candidate.nested && depth < 5 && isUsefulNested(u)) nested.push(u);
     }
   }
-  for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
-    try {
-      const more = await extractStreams(nestedUrl, depth + 1, visited, pageUrl);
-      for (const stream of more) if (!seen.has(stream.url)) { seen.add(stream.url); direct.push(stream); }
-    } catch (error) { console.error("[DoramaYT] Nested extractor: " + error.message); }
+
+  const nestedUrls = [...new Set(nested)].slice(0, 16);
+  if (!nestedUrls.length) return direct;
+
+  // All player servers are independent. Fetch them concurrently instead of one-by-one.
+  const results = await Promise.all(nestedUrls.map(url => extractNested(url, depth, visited, pageUrl)));
+  for (const streams of results) {
+    for (const stream of streams) {
+      if (!seen.has(stream.url)) {
+        seen.add(stream.url);
+        direct.push(stream);
+      }
+    }
   }
   return direct;
 }
