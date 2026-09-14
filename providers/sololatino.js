@@ -1,6 +1,6 @@
 /**
  * sololatino - Built from src/sololatino/
- * Generated: 2026-09-14T01:49:39.231Z
+ * Generated: 2026-09-14T01:49:53.694Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -169,6 +169,10 @@ function findEpisodeUrl(html, episode, season = 1) {
   }
   return "";
 }
+function buildEpisodeUrl(detailUrl, season = 1, episode = 1) {
+  if (!detailUrl || !episode || /\/temporada-\d+\/episodio-\d+\/?$/i.test(detailUrl)) return detailUrl;
+  return detailUrl.replace(/\/+$/, "") + "/temporada-" + Number(season || 1) + "/episodio-" + Number(episode);
+}
 
 // src/sololatino/extract.js
 function decode(value) {
@@ -239,19 +243,23 @@ function normalizeType(type) {
   const value = String(type || "").toLowerCase();
   return value === "movie" || value === "film" ? "movie" : "tv";
 }
-function getStreams(tmdbId, mediaType, season, episode) {
+function getStreams(tmdbId, mediaType, season = 1, episode) {
   return __async(this, null, function* () {
     try {
       const type = normalizeType(mediaType);
       const variants = yield getTmdbTitleVariants(tmdbId, type);
       for (const title of variants) {
         try {
-          const detail = yield searchSoloLatino(title);
+          const detail = yield searchSoloLatino(title, type);
           let pageUrl = detail;
           if (type === "tv" && episode) {
-            const html = yield request(detail);
-            const epUrl = findEpisodeUrl(html, episode);
-            if (epUrl) pageUrl = epUrl;
+            pageUrl = buildEpisodeUrl(detail, season, episode);
+            try {
+              const html = yield request(detail);
+              const scraped = findEpisodeUrl(html, episode, season);
+              if (scraped) pageUrl = scraped;
+            } catch (_) {
+            }
           }
           const streams = yield extractStreams(pageUrl);
           if (streams.length) return streams;
