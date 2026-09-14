@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-14T00:41:43.085Z
+ * Generated: 2026-09-14T00:42:06.999Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -551,6 +551,32 @@ function extractStreams(_0) {
   });
 }
 
+// src/doramasyt/playback.js
+function normalizeStream(stream) {
+  if (!stream || !stream.url) return null;
+  const headers = __spreadValues({}, stream.headers || {});
+  const referer = headers.Referer || headers.referer || "https://www.doramasyt.com/";
+  headers.Referer = referer;
+  try {
+    const streamOrigin = new URL(stream.url).origin;
+    const refererOrigin = new URL(referer).origin;
+    if (streamOrigin !== refererOrigin) headers.Origin = refererOrigin;
+  } catch (_) {
+  }
+  return __spreadProps(__spreadValues({}, stream), { headers });
+}
+function prepareStreams(streams) {
+  const result = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const stream of Array.isArray(streams) ? streams : []) {
+    const normalized = normalizeStream(stream);
+    if (!normalized || seen.has(normalized.url)) continue;
+    seen.add(normalized.url);
+    result.push(normalized);
+  }
+  return result;
+}
+
 // src/doramasyt/index.js
 function normalizeMediaType(mediaType) {
   const type = String(mediaType || "").toLowerCase();
@@ -565,7 +591,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const title = yield getTmdbTitle(tmdbId, type);
       const detail = yield searchDorama(title);
       const pageUrl = type === "tv" && episode ? yield getEpisodeUrl(detail, title, episode) : detail;
-      return yield extractStreams(pageUrl);
+      const streams = yield extractStreams(pageUrl);
+      return prepareStreams(streams);
     } catch (error) {
       console.error("[DoramaYT] " + error.message);
       return [];
