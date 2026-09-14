@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-14T00:00:19.410Z
+ * Generated: 2026-09-14T00:00:48.490Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -163,11 +163,7 @@ function extractEpisodeApi(html, detailUrl) {
   const tokenMatch = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i) || html.match(/name=["']csrf-token["'][^>]+content=["']([^"']+)/i);
   const ajaxMatch = html.match(/class=["'][^"']*caplist[^"']*["'][^>]+data-ajax=["']([^"']+)/i) || html.match(/data-ajax=["']([^"']+)["'][^>]*class=["'][^"']*caplist/i) || html.match(/data-ajax=["']([^"']+)["']/i);
   if (!ajaxMatch) return null;
-  return {
-    token: tokenMatch ? tokenMatch[1] : "",
-    ajax: absoluteUrl(ajaxMatch[1]),
-    referer: detailUrl
-  };
+  return { token: tokenMatch ? tokenMatch[1] : "", ajax: absoluteUrl(ajaxMatch[1]), referer: detailUrl };
 }
 function findEpisodeFromApi(detailUrl, episode) {
   return __async(this, null, function* () {
@@ -205,38 +201,38 @@ function findEpisodeByDeterministicUrl(detailUrl, episode) {
       BASE_URL + "/ver/" + baseSlug + "-episodio-" + wanted,
       BASE_URL + "/ver/" + baseSlug + "-capitulo-" + wanted
     ];
-    for (const candidate of candidates) {
+    const results = yield Promise.all(candidates.map((candidate) => __async(null, null, function* () {
       try {
         const html = yield request(candidate);
-        if (/<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html)) {
-          return candidate;
-        }
+        return /<(?:title|h1)[^>]*>[\s\S]*?(?:episodio|cap[ií]tulo|e\s*\d+)/i.test(html) || /data-player=/i.test(html) ? candidate : null;
       } catch (_) {
+        return null;
       }
-    }
-    return null;
+    })));
+    return results.find(Boolean) || null;
   });
 }
 function findEpisodeFromSearch(title, episode) {
   return __async(this, null, function* () {
     const queries = aliases(title);
-    for (const q of queries) {
+    const results = yield Promise.all(queries.map((q) => __async(null, null, function* () {
       try {
         const html = yield request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
-        const anchors = parseAnchors(html);
-        const matches = anchors.filter((a) => episodeMatch(a, q, episode));
-        if (matches.length) {
-          matches.sort((a, b) => {
-            const aEpisode = episodeNumber(a.text + " " + a.href);
-            const bEpisode = episodeNumber(b.text + " " + b.href);
-            return Math.abs(aEpisode - episodeNumber(episode)) - Math.abs(bEpisode - episodeNumber(episode));
-          });
-          return matches[0].href;
-        }
+        const matches2 = parseAnchors(html).filter((a) => episodeMatch(a, q, episode));
+        return matches2;
       } catch (_) {
+        return [];
       }
-    }
-    return null;
+    })));
+    const matches = results.flat();
+    if (!matches.length) return null;
+    matches.sort((a, b) => {
+      const wanted = episodeNumber(episode);
+      const aEpisode = episodeNumber(a.text + " " + a.href);
+      const bEpisode = episodeNumber(b.text + " " + b.href);
+      return Math.abs(aEpisode - wanted) - Math.abs(bEpisode - wanted);
+    });
+    return matches[0].href;
   });
 }
 function findEpisodeFromEmission(title, episode) {
@@ -256,25 +252,32 @@ function findEpisodeFromEmission(title, episode) {
 function searchDorama(title) {
   return __async(this, null, function* () {
     const queries = aliases(title);
-    let best = null;
-    for (const q of queries) {
+    const results = yield Promise.all(queries.map((q) => __async(null, null, function* () {
       try {
         const html = yield request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
         const anchors = parseAnchors(html);
         const candidates = anchors.filter((a) => /\/dorama\//i.test(a.href));
-        candidates.sort((a, b) => {
-          const score = (x) => titleMatch(x.text, q) ? 0 : slug(x.href).includes(slug(q)) ? 1 : 5;
-          return score(a) - score(b);
-        });
-        if (candidates.length) return candidates[0].href;
-        if (!best) {
-          const fallback = anchors.filter((a) => titleMatch(a.text, q));
-          if (fallback.length) best = fallback[0];
-        }
+        const fallback = anchors.filter((a) => titleMatch(a.text, q));
+        return { query: q, candidates, fallback };
       } catch (_) {
+        return { query: q, candidates: [], fallback: [] };
+      }
+    })));
+    let best = null;
+    for (const result of results) {
+      const candidates = result.candidates;
+      candidates.sort((a, b) => {
+        const score = (x) => titleMatch(x.text, result.query) ? 0 : slug(x.href).includes(slug(result.query)) ? 1 : 5;
+        return score(a) - score(b);
+      });
+      if (candidates.length) {
+        if (!best || candidates[0] && titleMatch(candidates[0].text, title)) best = candidates[0];
       }
     }
     if (best) return best.href;
+    for (const result of results) {
+      if (result.fallback.length) return result.fallback[0].href;
+    }
     throw new Error("DoramaYT title not found: " + title);
   });
 }
@@ -496,13 +499,24 @@ function resolveStreamTape(url, referer) {
     }
   });
 }
+function extractNested(nestedUrl, depth, visited, referer) {
+  return __async(this, null, function* () {
+    try {
+      return yield extractStreams(nestedUrl, depth + 1, visited, referer);
+    } catch (error) {
+      console.error("[DoramaYT] Nested extractor: " + error.message);
+      return [];
+    }
+  });
+}
 function extractStreams(_0) {
   return __async(this, arguments, function* (pageUrl, depth = 0, visited = /* @__PURE__ */ new Set(), parentReferer = "https://www.doramasyt.com/") {
     if (depth > 5 || visited.has(pageUrl)) return [];
     visited.add(pageUrl);
-    const knownDood = yield resolveDood(pageUrl, parentReferer);
+    const knownDoodPromise = resolveDood(pageUrl, parentReferer);
+    const knownTapePromise = resolveStreamTape(pageUrl, parentReferer);
+    const [knownDood, knownTape] = yield Promise.all([knownDoodPromise, knownTapePromise]);
     if (knownDood.length) return knownDood.map((item) => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: item.referer }) }));
-    const knownTape = yield resolveStreamTape(pageUrl, parentReferer);
     if (knownTape.length) return knownTape.map((item) => ({ name: "DoramaYT", title: item.title, url: item.url, quality: "Auto", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: item.referer }) }));
     const html = yield request(pageUrl, { headers: { Referer: parentReferer } });
     const direct = [];
@@ -527,15 +541,15 @@ function extractStreams(_0) {
         else if (candidate.nested && depth < 5 && isUsefulNested(u)) nested.push(u);
       }
     }
-    for (const nestedUrl of [...new Set(nested)].slice(0, 16)) {
-      try {
-        const more = yield extractStreams(nestedUrl, depth + 1, visited, pageUrl);
-        for (const stream of more) if (!seen.has(stream.url)) {
+    const nestedUrls = [...new Set(nested)].slice(0, 16);
+    if (!nestedUrls.length) return direct;
+    const results = yield Promise.all(nestedUrls.map((url) => extractNested(url, depth, visited, pageUrl)));
+    for (const streams of results) {
+      for (const stream of streams) {
+        if (!seen.has(stream.url)) {
           seen.add(stream.url);
           direct.push(stream);
         }
-      } catch (error) {
-        console.error("[DoramaYT] Nested extractor: " + error.message);
       }
     }
     return direct;
