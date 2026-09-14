@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-14T02:00:41.794Z
+ * Generated: 2026-09-14T02:05:25.589Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
