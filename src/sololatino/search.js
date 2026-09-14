@@ -18,8 +18,51 @@ function parseAnchors(html) {
   while (m = re.exec(html)) result.push({ href: absoluteUrl(m[1]), text: clean(m[2]) });
   return result;
 }
+function pageTitle(html) {
+  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+  const og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i);
+  const tw = html.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)/i);
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return clean((h1 && h1[1]) || (og && og[1]) || (tw && tw[1]) || (title && title[1]) || "");
+}
+async function directSlugSearch(query, mediaType) {
+  const slugValue = slug(query);
+  const paths = mediaType === "movie"
+    ? ["/pelicula/" + slugValue, "/serie/" + slugValue]
+    : ["/serie/" + slugValue, "/dorama/" + slugValue, "/anime/" + slugValue];
+  for (const path of paths) {
+    try {
+      const url = BASE_URL + path;
+      const html = await request(url);
+      const pt = pageTitle(html);
+      if (titleMatch(pt, query) || /\/temporada-\d+\/episodio-\d+/i.test(html)) return url;
+    } catch (_) {}
+  }
+  return "";
+}
 export async function searchSoloLatino(title, mediaType = "tv") {
   const query = clean(title);
+  if (!query) throw new Error("SoloLatino empty title");
+
+  // Try the predictable WordPress slug first. This avoids depending on the site's search page.
+  const direct = await directSlugSearch(query, mediaType);
+  if (direct) return direct;
+
+  // WordPress REST search is a reliable fallback when the HTML search is unavailable.
+  try {
+    const apiUrl = BASE_URL + "/wp-json/wp/v2/search?search=" + encodeURIComponent(query) + "&per_page=20";
+    const data = await request(apiUrl, { json: true });
+    if (Array.isArray(data)) {
+      const candidates = data.map(x => ({ href: absoluteUrl(x.url), text: clean(x.title && x.title.rendered) }))
+        .filter(a => a.href.startsWith(BASE_URL + "/") && titleMatch(a.text, query) && !/\/temporada-\d+\/episodio-\d+/i.test(a.href));
+      const preferred = mediaType === "movie"
+        ? candidates.find(a => /\/pelicula\//i.test(a.href))
+        : candidates.find(a => /\/(?:serie|dorama|anime)\//i.test(a.href));
+      if (preferred) return preferred.href;
+      if (candidates[0]) return candidates[0].href;
+    }
+  } catch (_) {}
+
   const urls = [
     BASE_URL + "/?s=" + encodeURIComponent(query),
     BASE_URL + "/buscar?s=" + encodeURIComponent(query),
@@ -34,15 +77,6 @@ export async function searchSoloLatino(title, mediaType = "tv") {
       const preferred = mediaType === "movie" ? candidates.find(a => /\/pelicula\//i.test(a.href)) : candidates.find(a => /\/(?:serie|dorama|anime)\//i.test(a.href));
       if (preferred) return preferred.href;
       if (candidates[0]) return candidates[0].href;
-    } catch (_) {}
-  }
-  const slugValue = slug(query);
-  const paths = mediaType === "movie" ? ["/pelicula/" + slugValue, "/serie/" + slugValue] : ["/serie/" + slugValue, "/dorama/" + slugValue, "/anime/" + slugValue];
-  for (const path of paths) {
-    try {
-      const url = BASE_URL + path;
-      const html = await request(url);
-      if (/<h1[^>]*>[\s\S]*<\/h1>/i.test(html) || /og:title/i.test(html)) return url;
     } catch (_) {}
   }
   throw new Error("SoloLatino title not found: " + title);
