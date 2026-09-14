@@ -148,13 +148,13 @@ async function findEpisodeFromSearch(title, episode) {
   const results = await Promise.all(queries.map(async q => {
     try {
       const html = await request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
-      const matches = parseAnchors(html).filter(a => episodeMatch(a, q, episode));
-      return matches;
+      return parseAnchors(html).filter(a => episodeMatch(a, q, episode));
     } catch (_) {
       return [];
     }
   }));
-  const matches = results.flat();
+  const matches = [];
+  for (const group of results) for (const item of group) matches.push(item);
   if (!matches.length) return null;
   matches.sort((a, b) => {
     const wanted = episodeNumber(episode);
@@ -193,20 +193,15 @@ export async function searchDorama(title) {
 
   let best = null;
   for (const result of results) {
-    const candidates = result.candidates;
-    candidates.sort((a, b) => {
+    result.candidates.sort((a, b) => {
       const score = x => titleMatch(x.text, result.query) ? 0 : slug(x.href).includes(slug(result.query)) ? 1 : 5;
       return score(a) - score(b);
     });
-    if (candidates.length) {
-      if (!best || candidates[0] && titleMatch(candidates[0].text, title)) best = candidates[0];
-    }
+    if (result.candidates.length && (!best || titleMatch(result.candidates[0].text, title))) best = result.candidates[0];
   }
   if (best) return best.href;
 
-  for (const result of results) {
-    if (result.fallback.length) return result.fallback[0].href;
-  }
+  for (const result of results) if (result.fallback.length) return result.fallback[0].href;
   throw new Error("DoramaYT title not found: " + title);
 }
 
@@ -214,7 +209,6 @@ export async function getEpisodeUrl(detailUrl, title, episode) {
   const wanted = episodeNumber(episode);
   if (!wanted) return detailUrl;
 
-  // Stable /ver/<slug>-episodio-N pages are the fastest route.
   try {
     const deterministic = await findEpisodeByDeterministicUrl(detailUrl, wanted);
     if (deterministic) return deterministic;
