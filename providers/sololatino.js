@@ -1,6 +1,6 @@
 /**
  * sololatino - Built from src/sololatino/
- * Generated: 2026-09-14T01:38:54.526Z
+ * Generated: 2026-09-14T01:44:40.914Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -105,6 +105,9 @@ function getTmdbTitleVariants(tmdbId, mediaType) {
 function normalize(value) {
   return clean(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
+function slug(value) {
+  return normalize(value).replace(/\s+/g, "-");
+}
 function titleMatch(text, title) {
   const a = normalize(text), b = normalize(title);
   if (!a || !b) return false;
@@ -124,7 +127,14 @@ function searchSoloLatino(title) {
   return __async(this, null, function* () {
     const queries = [...new Set([title, title.replace(/[:.!?]/g, " ")].map(clean).filter(Boolean))];
     for (const query of queries) {
+      const direct = BASE_URL + "/serie/" + slug(query);
+      try {
+        const html = yield request(direct);
+        if (/<h1[^>]*>[\s\S]*<\/h1>/i.test(html) && titleMatch(html, query)) return direct;
+      } catch (_) {
+      }
       for (const url of [
+        BASE_URL + "/?s=" + encodeURIComponent(query),
         BASE_URL + "/buscar?query=" + encodeURIComponent(query),
         BASE_URL + "/buscar?q=" + encodeURIComponent(query)
       ]) {
@@ -167,14 +177,14 @@ function likelyPlayer(url) {
     const p = new URL(url);
     const h = p.hostname.toLowerCase(), path = p.pathname.toLowerCase();
     if (/\.(?:js|css|png|jpe?g|gif|svg|webp|woff2?|ttf)(?:$|[?#])/i.test(url)) return false;
-    return /(streamtape|dood|filemoon|streamwish|voe|uqload|mixdrop|vidplay|vidhide|filelions|mp4upload)/i.test(h) || /(?:\/embed|\/e\/|\/player|\/reproductor|\/watch|\/stream|\/play)/i.test(path);
+    return /(streamtape|dood|filemoon|streamwish|voe|uqload|mixdrop|vidplay|vidhide|filelions|mp4upload)/i.test(h) || /(?:\/embed|\/e\/|\/player|\/reproductor|\/watch|\/stream|\/play|\/servidor|\/video)/i.test(path);
   } catch (_) {
     return false;
   }
 }
 function extractStreams(_0) {
   return __async(this, arguments, function* (pageUrl, depth = 0, visited = /* @__PURE__ */ new Set()) {
-    if (depth > 4 || visited.has(pageUrl)) return [];
+    if (depth > 5 || visited.has(pageUrl)) return [];
     visited.add(pageUrl);
     const html = yield request(pageUrl);
     const streams = [], nested = [], seen = /* @__PURE__ */ new Set();
@@ -193,15 +203,22 @@ function extractStreams(_0) {
       } else if (likelyPlayer(u)) nested.push({ url: u, title });
     };
     let m;
-    const attrs = /(?:src|file|source|data-src|data-file|data-video|data-embed|data-url)=\s*["']([^"']+)["']/gi;
+    const attrs = /(?:src|file|source|data-src|data-file|data-video|data-embed|data-url|data-href|data-link|data-player)=\s*["']([^"']+)["']/gi;
     while (m = attrs.exec(html)) add(m[1]);
     const iframes = /<iframe[^>]+src=\s*["']([^"']+)["']/gi;
     while (m = iframes.exec(html)) nested.push({ url: absoluteUrl(m[1], pageUrl), title: "Servidor" });
-    const json = /["'](?:file|url|src|stream|source|playlist|hls|dash|file_url|video_url|stream_url)["']\s*:\s*["']([^"']+)["']/gi;
+    const playerCalls = /(?:go_to_player|go_to_playerVast)\s*\(\s*["']([^"']+)["']/gi;
+    while (m = playerCalls.exec(html)) add(m[1], "Servidor");
+    const onclickUrls = /(?:onclick|onload)=\s*["'][^"']*(?:https?:)?(\/\/|\/)[^"']+["']/gi;
+    while (m = onclickUrls.exec(html)) {
+      const raw = m[0].match(/(https?:\/\/[^'"\s]+|\/[^'"\s)]+\b)/i);
+      if (raw) add(raw[1], "Servidor");
+    }
+    const json = /["'](?:file|url|src|stream|source|playlist|hls|dash|file_url|video_url|stream_url|player_url)["']\s*:\s*["']([^"']+)["']/gi;
     while (m = json.exec(html)) add(m[1]);
     const media = /https?:\/\/[^\s"'<>]+\.(?:m3u8|mpd|mp4|mkv|webm|m4v|mov|ts)(?:\?[^\s"'<>]*)?/gi;
     while (m = media.exec(html)) add(m[0]);
-    const uniqueNested = [...new Map(nested.filter((x) => x.url).map((x) => [x.url, x])).values()].slice(0, 12);
+    const uniqueNested = [...new Map(nested.filter((x) => x.url).map((x) => [x.url, x])).values()].slice(0, 20);
     const results = yield Promise.all(uniqueNested.map((x) => extractStreams(x.url, depth + 1, visited).catch(() => [])));
     for (const group of results) for (const stream of group)
       if (!seen.has(stream.url)) {
