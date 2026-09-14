@@ -1,7 +1,7 @@
 {
   "id": "municipalidad-doramasyt",
   "name": "Municipalidad DoramaYT",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "scrapers": [
     {
       "id": "doramasyt",
@@ -20,7 +20,7 @@
       "id": "sololatino",
       "name": "SoloLatino",
       "description": "SoloLatino provider for movies and TV series in Spanish",
-      "version": "1.0.14",
+      "version": "1.0.15",
       "author": "municipalidad1998",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/sololatino.js",
