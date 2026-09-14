@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -36,7 +38,7 @@ jobs:
       - name: Build providers
         run: node build.js
 
-      - name: Commit generated providers
+      - name: Publish generated providers
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -46,4 +48,6 @@ jobs:
             exit 0
           fi
           git commit -m "Build Nuvio providers"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
