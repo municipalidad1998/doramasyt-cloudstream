@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-nuvio
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -39,8 +43,7 @@ jobs:
           git add providers/
           if git diff --cached --quiet; then
             echo "No generated changes"
-          else
-            git commit -m "Build Nuvio providers"
-            git pull --rebase origin main
-            git push
+            exit 0
           fi
+          git commit -m "Build Nuvio providers"
+          git push origin HEAD:main
