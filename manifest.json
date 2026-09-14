@@ -1,13 +1,13 @@
 {
   "id": "municipalidad-doramasyt",
   "name": "Municipalidad DoramaYT",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "scrapers": [
     {
       "id": "doramasyt",
       "name": "DoramaYT",
       "description": "DoramaYT provider for movies and TV series with robust episode discovery and external player extraction",
-      "version": "1.0.12",
+      "version": "1.0.13",
       "author": "municipalidad1998",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/doramasyt.js",
