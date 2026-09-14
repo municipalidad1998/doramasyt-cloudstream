@@ -3,6 +3,9 @@ function normalize(value) {
   return clean(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, " ").trim();
 }
+function slug(value) {
+  return normalize(value).replace(/\s+/g, "-");
+}
 function titleMatch(text, title) {
   const a = normalize(text), b = normalize(title);
   if (!a || !b) return false;
@@ -21,7 +24,13 @@ function parseAnchors(html) {
 export async function searchSoloLatino(title) {
   const queries = [...new Set([title, title.replace(/[:.!?]/g, " ")].map(clean).filter(Boolean))];
   for (const query of queries) {
+    const direct = BASE_URL + "/serie/" + slug(query);
+    try {
+      const html = await request(direct);
+      if (/<h1[^>]*>[\s\S]*<\/h1>/i.test(html) && titleMatch(html, query)) return direct;
+    } catch (_) {}
     for (const url of [
+      BASE_URL + "/?s=" + encodeURIComponent(query),
       BASE_URL + "/buscar?query=" + encodeURIComponent(query),
       BASE_URL + "/buscar?q=" + encodeURIComponent(query)
     ]) {
