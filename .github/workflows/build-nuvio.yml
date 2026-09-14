@@ -41,5 +41,6 @@ jobs:
             echo "No generated changes"
           else
             git commit -m "Build Nuvio providers"
+            git pull --rebase origin main
             git push
           fi
