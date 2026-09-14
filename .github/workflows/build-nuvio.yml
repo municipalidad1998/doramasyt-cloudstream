@@ -47,7 +47,17 @@ jobs:
             echo "No generated changes"
             exit 0
           fi
+
           git commit -m "Build Nuvio providers"
+
+          # Generated providers are derived artifacts. Rebase can conflict with
+          # previous generated versions, so always take the freshly generated
+          # files from this run after bringing main up to date.
           git fetch origin main
-          git rebase origin/main
+          git rebase origin/main || {
+            git checkout --theirs providers/
+            git add providers/
+            GIT_EDITOR=true git rebase --continue
+          }
+
           git push origin HEAD:main
