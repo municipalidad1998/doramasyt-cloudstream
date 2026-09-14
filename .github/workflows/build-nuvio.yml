@@ -1,12 +1,13 @@
-name: Build Nuvio DoramaYT
+name: Build Nuvio Providers
 
 on:
   push:
     branches: [main]
     paths:
-      - 'src/doramasyt/**'
+      - 'src/**'
       - 'build.js'
       - 'package.json'
+      - 'manifest.json'
       - '.github/workflows/build-nuvio.yml'
   workflow_dispatch:
 
@@ -28,17 +29,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build DoramaYT
-        run: node build.js doramasyt
+      - name: Build providers
+        run: node build.js
 
-      - name: Commit generated provider
+      - name: Commit generated providers
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add providers/doramasyt.js
+          git add providers/
           if git diff --cached --quiet; then
             echo "No generated changes"
           else
-            git commit -m "Build DoramaYT Nuvio provider"
+            git commit -m "Build Nuvio providers"
             git push
           fi
