@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-14T00:46:34.152Z
+ * Generated: 2026-09-14T01:25:46.770Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -150,6 +150,17 @@ function episodeNumber(value) {
   if (match) return Number(match[1] || match[2]);
   const numbers = text.match(/\d+/g);
   return numbers && numbers.length ? Number(numbers[numbers.length - 1]) : 0;
+}
+function getTmdbTitle(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    const type = mediaType === "tv" || mediaType === "series" ? "tv" : "movie";
+    const html = yield request("https://www.themoviedb.org/" + type + "/" + tmdbId);
+    const meta = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i);
+    const title = meta ? meta[1] : (html.match(/<title>([^<]+)/i) || [])[1] || "";
+    const result = clean(title).replace(/\s*\|\s*TMDB.*$/i, "").trim();
+    if (!result) throw new Error("TMDB title not found");
+    return result;
+  });
 }
 function parseAnchors(html) {
   const result = [];
@@ -620,32 +631,53 @@ function normalizeMediaType(mediaType) {
   if (type === "tv" || type === "series" || type === "show" || type === "tvseries") return "tv";
   return "tv";
 }
-function findDoramaByVariants(variants) {
+function uniqueTitles(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+function getTitleVariantsSafe(tmdbId, type) {
   return __async(this, null, function* () {
-    let lastError = null;
-    for (const title of variants) {
-      try {
-        return { detail: yield searchDorama(title), title };
-      } catch (error) {
-        lastError = error;
-        console.error("[DoramaYT] Search title '" + title + "': " + error.message);
-      }
+    const variants = [];
+    try {
+      variants.push(...yield getTmdbTitleVariants(tmdbId, type));
+    } catch (error) {
+      console.error("[DoramaYT] TMDB variants: " + error.message);
     }
-    throw lastError || new Error("DoramaYT title not found");
+    try {
+      variants.push(yield getTmdbTitle(tmdbId, type));
+    } catch (error) {
+      console.error("[DoramaYT] TMDB fallback title: " + error.message);
+    }
+    return uniqueTitles(variants).slice(0, 8);
+  });
+}
+function tryVariant(variant, type, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const detail = yield searchDorama(variant);
+      const pageUrl = type === "tv" && episode ? yield getEpisodeUrl(detail, variant, episode) : detail;
+      const streams = prepareStreams(yield extractStreams(pageUrl));
+      if (streams.length) {
+        console.log("[DoramaYT] Streams found using title: " + variant);
+        return streams;
+      }
+    } catch (error) {
+      console.error("[DoramaYT] Variant '" + variant + "': " + error.message);
+    }
+    return [];
   });
 }
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
       const type = normalizeMediaType(mediaType);
-      const variants = yield getTmdbTitleVariants(tmdbId, type);
+      const variants = yield getTitleVariantsSafe(tmdbId, type);
       if (!variants.length) throw new Error("TMDB title not found");
-      const found = yield findDoramaByVariants(variants);
-      const detail = found.detail;
-      const searchTitle = found.title;
-      const pageUrl = type === "tv" && episode ? yield getEpisodeUrl(detail, searchTitle, episode) : detail;
-      const streams = yield extractStreams(pageUrl);
-      return prepareStreams(streams);
+      for (const variant of variants) {
+        const streams = yield tryVariant(variant, type, season, episode);
+        if (streams.length) return streams;
+      }
+      console.error("[DoramaYT] No streams found for title variants: " + variants.join(" | "));
+      return [];
     } catch (error) {
       console.error("[DoramaYT] " + error.message);
       return [];
