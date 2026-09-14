@@ -1,7 +1,7 @@
 {
   "id": "municipalidad-doramasyt",
   "name": "Municipalidad DoramaYT",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "scrapers": [
     {
       "id": "doramasyt",
@@ -13,6 +13,19 @@
       "filename": "providers/doramasyt.js",
       "enabled": true,
       "formats": ["m3u8","mpd","mp4","mkv","webm","m4v","mov","ts","m3u","avi","flv","3gp","mpeg","mpg","ogv"],
+      "contentLanguage": ["es"],
+      "supportsExternalPlayer": true
+    },
+    {
+      "id": "sololatino",
+      "name": "SoloLatino",
+      "description": "SoloLatino provider for movies and TV series in Spanish",
+      "version": "1.0.14",
+      "author": "municipalidad1998",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/sololatino.js",
+      "enabled": true,
+      "formats": ["m3u8","mpd","mp4","mkv","webm","m4v","mov","ts"],
       "contentLanguage": ["es"],
       "supportsExternalPlayer": true
     }
