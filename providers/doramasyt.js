@@ -1,6 +1,6 @@
 /**
  * doramasyt - Built from src/doramasyt/
- * Generated: 2026-09-14T00:00:48.490Z
+ * Generated: 2026-09-14T00:01:14.328Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -218,13 +218,13 @@ function findEpisodeFromSearch(title, episode) {
     const results = yield Promise.all(queries.map((q) => __async(null, null, function* () {
       try {
         const html = yield request(BASE_URL + "/buscar?q=" + encodeURIComponent(q));
-        const matches2 = parseAnchors(html).filter((a) => episodeMatch(a, q, episode));
-        return matches2;
+        return parseAnchors(html).filter((a) => episodeMatch(a, q, episode));
       } catch (_) {
         return [];
       }
     })));
-    const matches = results.flat();
+    const matches = [];
+    for (const group of results) for (const item of group) matches.push(item);
     if (!matches.length) return null;
     matches.sort((a, b) => {
       const wanted = episodeNumber(episode);
@@ -265,19 +265,14 @@ function searchDorama(title) {
     })));
     let best = null;
     for (const result of results) {
-      const candidates = result.candidates;
-      candidates.sort((a, b) => {
+      result.candidates.sort((a, b) => {
         const score = (x) => titleMatch(x.text, result.query) ? 0 : slug(x.href).includes(slug(result.query)) ? 1 : 5;
         return score(a) - score(b);
       });
-      if (candidates.length) {
-        if (!best || candidates[0] && titleMatch(candidates[0].text, title)) best = candidates[0];
-      }
+      if (result.candidates.length && (!best || titleMatch(result.candidates[0].text, title))) best = result.candidates[0];
     }
     if (best) return best.href;
-    for (const result of results) {
-      if (result.fallback.length) return result.fallback[0].href;
-    }
+    for (const result of results) if (result.fallback.length) return result.fallback[0].href;
     throw new Error("DoramaYT title not found: " + title);
   });
 }
